@@ -49,6 +49,10 @@ uv run ee collect --vertical local-ai-tooling --limit 5
 uv run ee pipeline --vertical local-ai-tooling --limit 5   # → reports/<vertical>-<date>.md
 uv run ee report --vertical local-ai-tooling               # regenerate report from the store
 uv run ee ideas list [--band collect_more]
+# decision support: what to review, who you'd displace, what to ship
+uv run ee review --queue                                   # hypotheses failing hard gates, ranked
+uv run ee competitors --vertical local-ai-tooling          # incumbent pressure from evidence
+uv run ee landing --idea <idea-id>                         # A/B landing draft + experiment plan
 # operator loop: review the human gate, record outcomes, watch calibration
 uv run ee review --hypothesis <hyp-id> --buyer "..." --channel search --smallest-paid-test "..."
 uv run ee outcomes record --experiment <exp-id> --kind deposit_paid --value '{"amount":50}'
@@ -56,9 +60,12 @@ uv run ee calibration
 uv run ee bootstrap --idea <idea-id> --out ideas/          # scaffold a project folder
 ```
 
-`--no-llm` runs extraction with the heuristic extractor instead of the local
-model. All model traffic stays on loopback (`:18000` text-main, `:6900`
-embeddings) per the workstation `MODEL_CONTRACT.json`.
+`--no-llm` runs extraction with the heuristic extractor. Extraction defaults
+to the loopback lanes (`:18000` text-main, `:6900` embeddings) per the
+workstation `MODEL_CONTRACT.json`; while GPU 0 is unavailable, set
+`EE_LLM_PROVIDER=minimax` (with `ANTHROPIC_AUTH_TOKEN_MINIMAX2` sourced from
+`~/.claude/.env`) to extract via hosted MiniMax-M2 — authorized for derived
+searxng data under policy v2's `external_inference_authorization`.
 
 ## Layout
 

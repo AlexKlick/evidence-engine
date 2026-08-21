@@ -210,7 +210,7 @@ def report(
 
 @app.command()
 def review(
-    hypothesis: Annotated[str, typer.Option("--hypothesis", "-H", help="hyp_... id")],
+    hypothesis: Annotated[str | None, typer.Option("--hypothesis", "-H", help="hyp_... id")] = None,
     buyer: Annotated[str | None, typer.Option("--buyer", "-b")] = None,
     channel: Annotated[str | None, typer.Option("--channel", "-c")] = None,
     paid_test: Annotated[
@@ -222,12 +222,36 @@ def review(
     ] = None,
     job: Annotated[str | None, typer.Option("--job")] = None,
     pain: Annotated[str | None, typer.Option("--pain")] = None,
+    queue: Annotated[
+        bool, typer.Option("--queue", help="list hypotheses failing hard gates")
+    ] = False,
 ) -> None:
     """Human review: set hypothesis fields, then rescore its ideas (gates update)."""
     settings = Settings.load()
-    rubric = load_rubric(settings)
     engine = make_engine(settings.db_url)
     init_db(engine)
+
+    if queue:
+        from evidence_engine.ideas.review import review_queue
+
+        with make_session_factory(engine)() as session:
+            entries = review_queue(session)
+        if not entries:
+            typer.echo("review queue empty — every hypothesis passes its gates")
+            return
+        typer.echo(f"{len(entries)} hypotheses with open hard gates:")
+        for entry in entries:
+            typer.echo(
+                f"  {entry['hypothesis_id']}  best={entry['best_score']:5.1f}  "
+                f"ideas={entry['ideas']}  missing={','.join(entry['missing'])}"
+            )
+        return
+
+    if not hypothesis:
+        typer.echo("error: --hypothesis is required (or use --queue)")
+        raise typer.Exit(1)
+
+    rubric = load_rubric(settings)
     updates = {
         "buyer": buyer,
         "channel": channel,
@@ -421,6 +445,66 @@ def deletions_purge() -> None:
             f"{event.affected_claims} claims, {event.affected_segments} segments "
             f"({event.reason})"
         )
+
+
+@app.command()
+def competitors(
+    vertical: Annotated[str, typer.Option("--vertical", "-y", help="vertical slug")],
+) -> None:
+    """Competitor pressure map, derived from entitled evidence only."""
+    from evidence_engine.ideas.competitors import (
+        alternatives_overview,
+        render_competitors_markdown,
+    )
+
+    settings = Settings.load()
+    engine = make_engine(settings.db_url)
+    init_db(engine)
+    with make_session_factory(engine)() as session:
+        overview = alternatives_overview(session, vertical)
+    if not overview.direct_software:
+        typer.echo(
+            "no incumbents extracted yet — run `ee pipeline` with LLM extraction"
+        )
+        return
+    for line in render_competitors_markdown(overview):
+        typer.echo(line)
+
+
+@app.command()
+def landing(
+    idea_id: Annotated[str, typer.Option("--idea", "-i", help="idea id (idea_...)")],
+    out: Annotated[Path | None, typer.Option("--out", "-o", help="output dir")] = None,
+) -> None:
+    """Emit the landing-page draft + experiment plan for an idea."""
+    import yaml
+
+    from evidence_engine.experiments.landing import render_landing_markdown
+
+    settings = Settings.load()
+    engine = make_engine(settings.db_url)
+    init_db(engine)
+    with make_session_factory(engine)() as session:
+        idea = repo.get_idea(session, idea_id)
+        if idea is None:
+            typer.echo(f"idea {idea_id!r} not found")
+            raise typer.Exit(1)
+        hypothesis = repo.get_hypothesis(session, idea.hypothesis_id)
+        spec = draft_experiment_spec(
+            idea, hypothesis, load_rubric(settings).get("experiment_defaults") or {}
+        )
+    target = out or (settings.ideas_dir / idea.id)
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "landing.md").write_text(
+        render_landing_markdown(idea, hypothesis, spec), encoding="utf-8"
+    )
+    (target / "experiment-plan.md").write_text(
+        "# Experiment plan (predeclared metrics — no retrospective selection)\n\n```yaml\n"
+        + yaml.safe_dump(spec, sort_keys=False)
+        + "```\n",
+        encoding="utf-8",
+    )
+    typer.echo(f"landing + experiment plan: {target}")
 
 
 @app.command()

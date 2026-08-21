@@ -18,10 +18,15 @@ from sqlalchemy.orm import Session
 from evidence_engine import __version__
 from evidence_engine.config import Settings, load_verticals
 from evidence_engine.experiments.experiment import draft_experiment_spec
+from evidence_engine.ideas.competitors import (
+    alternatives_overview,
+    render_competitors_markdown,
+)
+from evidence_engine.ideas.review import review_queue
 from evidence_engine.logging_setup import get_logger
 from evidence_engine.policy import PolicyRegistry
 from evidence_engine.store import repository as repo
-from evidence_engine.store.models import Query, SourceRun
+from evidence_engine.store.models import EvidenceEvent, Query, SourceRun
 
 logger = get_logger("report")
 
@@ -59,6 +64,34 @@ def stored_embed_mode(originals: list) -> str:
     if any(row.embedding for row in originals):
         return "stored"
     return "none"
+
+
+def velocity_summary(session: Session, slug: str) -> dict | None:
+    """Recent evidence rate vs historical baseline, per day.
+
+    The doc's velocity (recent normalized evidence rate / historical rate) on
+    its daily-snapshot granularity. Returns None until evidence spans >= 2 days.
+    """
+    rows = session.execute(
+        select(EvidenceEvent).where(EvidenceEvent.vertical == slug)
+    ).scalars()
+    by_day: dict[str, int] = {}
+    for row in rows:
+        day = row.fetched_at.date().isoformat()
+        by_day[day] = by_day.get(day, 0) + 1
+    days = sorted(by_day)
+    if len(days) < 2:
+        return None
+    recent_day = days[-1]
+    recent = by_day[recent_day]
+    baseline = sum(by_day[day] for day in days[:-1]) / (len(days) - 1)
+    return {
+        "days": len(days),
+        "recent_day": recent_day,
+        "recent": recent,
+        "baseline": round(baseline, 1),
+        "velocity": round(recent / baseline, 2) if baseline > 0 else None,
+    }
 
 
 def render_vertical_report(
@@ -107,6 +140,14 @@ def render_vertical_report(
 
     dup_count = len(all_rows) - len(originals)
     domains = len({row.domain for row in originals if row.domain})
+    velocity = velocity_summary(session, slug)
+    velocity_line = (
+        f"- velocity: {velocity['velocity']}x "
+        f"({velocity['recent_day']}: {velocity['recent']} vs baseline "
+        f"{velocity['baseline']}/day over {velocity['days']} days)"
+        if velocity
+        else "- velocity: n/a (single day of evidence so far)"
+    )
     lines += [
         "",
         "## Evidence",
@@ -114,6 +155,7 @@ def render_vertical_report(
         f"- total collected: **{len(all_rows)}** · duplicates removed: **{dup_count}** "
         f"· independent evidence: **{len(originals)}** · unique domains: **{domains}**",
         f"- embeddings: {embed_mode} ({embedding_model})",
+        velocity_line,
         "",
         "| intent | share of independent evidence |",
         "|---|---:|",
@@ -172,6 +214,27 @@ def render_vertical_report(
             f" ({defaults.get('cac_payback_months', 6)}-month payback)",
             f"- Dimensions: {idea.score_dimensions}",
         ]
+
+    overview = alternatives_overview(session, slug)
+    if overview.direct_software:
+        lines += ["", "## Competitor pressure", ""]
+        lines += render_competitors_markdown(overview)
+
+    queue = review_queue(session, slug)
+    if queue:
+        lines += [
+            "",
+            "## Review queue — hard gates open",
+            "",
+            "| hypothesis | best score | ideas | missing gates |",
+            "|---|---:|---:|---|",
+        ]
+        for entry in queue[:5]:
+            lines.append(
+                f"| `{entry['hypothesis_id']}` ({entry['title'][:40]}) "
+                f"| {entry['best_score']:.0f} | {entry['ideas']} "
+                f"| {', '.join(entry['missing'])} |"
+            )
 
     lines += [
         "",
