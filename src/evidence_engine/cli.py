@@ -276,6 +276,12 @@ def review(
     queue: Annotated[
         bool, typer.Option("--queue", help="list hypotheses failing hard gates")
     ] = False,
+    show: Annotated[
+        bool,
+        typer.Option(
+            "--show", help="read-only evidence pack for -H (decide before editing)"
+        ),
+    ] = False,
 ) -> None:
     """Human review: set hypothesis fields, then rescore its ideas (gates update)."""
     settings = Settings.load()
@@ -298,8 +304,31 @@ def review(
             )
         return
 
+    if show:
+        from evidence_engine.ideas.review import (
+            evidence_pack,
+            render_evidence_pack,
+        )
+
+        update_flags = [buyer, channel, paid_test, compliance, job, pain]
+        if not hypothesis:
+            typer.echo("error: --show needs --hypothesis")
+            raise typer.Exit(1)
+        if any(value is not None for value in update_flags):
+            typer.echo("error: --show is read-only; drop the update flags")
+            raise typer.Exit(1)
+        with make_session_factory(engine)() as session:
+            try:
+                pack = evidence_pack(session, hypothesis)
+            except KeyError as exc:
+                typer.echo(f"error: {exc.args[0]}")
+                raise typer.Exit(1) from exc
+        for line in render_evidence_pack(pack):
+            typer.echo(line)
+        return
+
     if not hypothesis:
-        typer.echo("error: --hypothesis is required (or use --queue)")
+        typer.echo("error: --hypothesis is required (or use --queue or --show)")
         raise typer.Exit(1)
 
     rubric = load_rubric(settings)

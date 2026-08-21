@@ -195,3 +195,43 @@ def test_pipeline_all_cli_exits_nonzero_when_a_vertical_fails(
     assert result.exit_code == 1
     assert "2 verticals ok · 1 failed" in result.output
     assert "failed: solo-dev-saas (boom)" in result.output
+
+
+def test_review_show_cli(fake_adapters, session_factory, settings, monkeypatch) -> None:
+    seed(session_factory, settings)
+    monkeypatch.setenv("EE_DB_DSN", settings.db_url)
+
+    with session_factory() as session:
+        hypothesis = (
+            session.query(ProblemHypothesis).filter_by(vertical=VERTICAL).first()
+        )
+        assert hypothesis is not None
+        hypothesis_id = hypothesis.id
+
+    result = runner.invoke(app, ["review", "--show", "-H", hypothesis_id])
+    assert result.exit_code == 0, result.output
+    assert "Evidence pack" in result.output
+    assert "buyer_identified" in result.output
+    assert "http" in result.output  # excerpts carry URLs
+    assert f"ee review -H {hypothesis_id}" in result.output
+
+
+def test_review_show_arg_errors(
+    fake_adapters, session_factory, settings, monkeypatch
+) -> None:
+    seed(session_factory, settings)
+    monkeypatch.setenv("EE_DB_DSN", settings.db_url)
+
+    no_id = runner.invoke(app, ["review", "--show"])
+    assert no_id.exit_code == 1
+    assert "--show needs --hypothesis" in no_id.output
+
+    with_update = runner.invoke(
+        app, ["review", "--show", "-H", "hyp_anything", "--buyer", "x"]
+    )
+    assert with_update.exit_code == 1
+    assert "read-only" in with_update.output
+
+    unknown = runner.invoke(app, ["review", "--show", "-H", "hyp_missing"])
+    assert unknown.exit_code == 1
+    assert "not found" in unknown.output
