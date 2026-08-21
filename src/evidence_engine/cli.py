@@ -648,11 +648,20 @@ def competitors(
 def landing(
     idea_id: Annotated[str, typer.Option("--idea", "-i", help="idea id (idea_...)")],
     out: Annotated[Path | None, typer.Option("--out", "-o", help="output dir")] = None,
+    html_export: Annotated[
+        bool,
+        typer.Option(
+            "--html", help="also write static landing-a/b.html + events.json"
+        ),
+    ] = False,
 ) -> None:
     """Emit the landing-page draft + experiment plan for an idea."""
     import yaml
 
-    from evidence_engine.experiments.landing import render_landing_markdown
+    from evidence_engine.experiments.landing import (
+        landing_content,
+        render_landing_markdown,
+    )
 
     settings = Settings.load()
     engine = make_engine(settings.db_url)
@@ -666,6 +675,7 @@ def landing(
         spec = draft_experiment_spec(
             idea, hypothesis, load_rubric(settings).get("experiment_defaults") or {}
         )
+        content = landing_content(idea, hypothesis, spec)
     target = out or (settings.ideas_dir / idea.id)
     target.mkdir(parents=True, exist_ok=True)
     (target / "landing.md").write_text(
@@ -678,6 +688,11 @@ def landing(
         encoding="utf-8",
     )
     typer.echo(f"landing + experiment plan: {target}")
+    if html_export:
+        from evidence_engine.experiments.landing_html import write_landing_html
+
+        for path in write_landing_html(target, content):
+            typer.echo(f"html export: {path}")
 
 
 @app.command()

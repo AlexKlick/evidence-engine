@@ -53,7 +53,7 @@ uv run ee ideas list [--band collect_more]
 # decision support: what to review, who you'd displace, what to ship
 uv run ee review --queue                                   # hypotheses failing hard gates, ranked
 uv run ee competitors --vertical local-ai-tooling          # incumbent pressure from evidence
-uv run ee landing --idea <idea-id>                         # A/B landing draft + experiment plan
+uv run ee landing --idea <idea-id> --html                   # A/B draft + static landing-a/b.html + events.json (ADR-0005)
 # operator loop: review the human gate, record outcomes, watch calibration
 uv run ee review --hypothesis <hyp-id> --buyer "..." --channel search --smallest-paid-test "..."
 uv run ee outcomes record --experiment <exp-id> --kind deposit_paid --value '{"amount":50}'

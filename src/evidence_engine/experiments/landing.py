@@ -1,39 +1,81 @@
-"""Landing-page draft generator (markdown scaffold; A/B message variants)."""
+"""Landing-page draft generator (shared content model + markdown emitter)."""
 
 from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class LandingContent:
+    """Variant-independent landing copy shared by the markdown + HTML emitters."""
+
+    pitch: str
+    buyer: str
+    job: str
+    pain: str
+    price_monthly: float
+    cac_ceiling: float
+    payback_months: int
+    primary_metric: str
+    stop_condition: str
+    headline_a: str  # feature framing
+    body_a: str
+    headline_b: str  # outcome framing
+    body_b: str
+
+
+def landing_content(idea, hypothesis, spec: dict) -> LandingContent:
+    """Build the shared copy: reviewed hypothesis fields + rubric arithmetic."""
+    buyer = getattr(hypothesis, "buyer", None) or "the buyer"
+    job = getattr(hypothesis, "job", None) or "the recurring job"
+    pain = getattr(hypothesis, "pain", None) or "the manual work"
+    pitch = getattr(idea, "pitch", "") or f"{getattr(idea, 'form', 'offer')}"
+    guardrail = spec["economics_guardrail"]
+    return LandingContent(
+        pitch=pitch,
+        buyer=buyer,
+        job=job,
+        pain=pain,
+        price_monthly=guardrail["price_monthly"],
+        cac_ceiling=guardrail["cac_ceiling"],
+        payback_months=guardrail["cac_payback_months"],
+        primary_metric=spec["primary_metric"],
+        stop_condition=str(spec.get("stop_condition")),
+        headline_a=pitch,
+        body_a=f"Handles {job} automatically. Built for {buyer}.",
+        headline_b=f"Stop losing time to {pain}",
+        body_b=(
+            f"{buyer.title() if isinstance(buyer, str) else 'You'} get {job} "
+            "handled every week — or you don't pay. First result in days."
+        ),
+    )
 
 
 def render_landing_markdown(idea, hypothesis, spec: dict) -> str:
     """Message-test-ready landing draft: outcome vs feature framing + price."""
-    buyer = getattr(hypothesis, "buyer", None) or "the buyer"
-    job = getattr(hypothesis, "job", None) or "the recurring job"
-    pain = getattr(hypothesis, "pain", None) or "the manual work"
-    price = spec["economics_guardrail"]["price_monthly"]
-    ceiling = spec["economics_guardrail"]["cac_ceiling"]
-    pitch = getattr(idea, "pitch", "") or f"{getattr(idea, 'form', 'offer')}"
-    return f"""# Landing draft — {pitch}
+    content = landing_content(idea, hypothesis, spec)
+    return f"""# Landing draft — {content.pitch}
 
 > Variant A (feature framing) vs Variant B (outcome framing), 50/50
-> randomized. Primary metric: {spec["primary_metric"]}.
-> Economics guardrail: CAC ceiling **${ceiling}**
-> (price ${price}/mo × margin × {spec["economics_guardrail"]["cac_payback_months"]}-month payback).
+> randomized. Primary metric: {content.primary_metric}.
+> Economics guardrail: CAC ceiling **${content.cac_ceiling}**
+> (price ${content.price_monthly}/mo × margin × {content.payback_months}-month payback).
 
 ## Variant A — feature framing
 
-# {pitch}
+# {content.headline_a}
 
-Handles {job} automatically. Built for {buyer}.
+{content.body_a}
 
-**${price}/month** · [Start paid pilot](#checkout)
+**${content.price_monthly}/month** · [Start paid pilot](#checkout)
 
 ## Variant B — outcome framing
 
-# Stop losing time to {pain}
+# {content.headline_b}
 
-{buyer.title() if isinstance(buyer, str) else "You"} get {job} handled every
-week — or you don't pay. First result in days.
+{content.body_b}
 
-**${price}/month** · [Start paid pilot](#checkout)
+**${content.price_monthly}/month** · [Start paid pilot](#checkout)
 
 ## Checkout (both variants)
 
@@ -44,6 +86,6 @@ week — or you don't pay. First result in days.
 
 ## Stop conditions (predeclared)
 
-- {spec.get("stop_condition")}
+- {content.stop_condition}
 - No early winner from casual peeking; evaluate at planned sample size.
 """

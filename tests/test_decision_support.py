@@ -145,7 +145,7 @@ def test_landing_cli_emits_drafts(
         )[0]
 
     runner = CliRunner()
-    result = runner.invoke(app, ["landing", "-i", idea.id])
+    result = runner.invoke(app, ["landing", "-i", idea.id, "--html"])
     assert result.exit_code == 0, result.output
     landing = settings.ideas_dir / idea.id / "landing.md"
     plan = settings.ideas_dir / idea.id / "experiment-plan.md"
@@ -153,3 +153,14 @@ def test_landing_cli_emits_drafts(
     text = landing.read_text(encoding="utf-8")
     assert "Variant A" in text and "Variant B" in text
     assert "economics_guardrail" in plan.read_text(encoding="utf-8")
+    # --html adds the static export set (5 files total in the idea folder)
+    html_files = sorted(
+        p.name for p in (settings.ideas_dir / idea.id).iterdir()
+    )
+    assert html_files == [
+        "events.json",
+        "experiment-plan.md",
+        "landing-a.html",
+        "landing-b.html",
+        "landing.md",
+    ]
