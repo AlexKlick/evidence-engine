@@ -27,6 +27,7 @@ from evidence_engine.nlp.embeddings import EmbeddingClient, EmbeddingUnavailable
 from evidence_engine.nlp.intent import classify
 from evidence_engine.nlp.llm import LLMClient
 from evidence_engine.nlp.pain_claims import extract as extract_claims
+from evidence_engine.nlp.query_expansion import effective_queries
 from evidence_engine.nlp.segment import split_sentences
 from evidence_engine.policy import PolicyRegistry, Purpose
 from evidence_engine.report import CollectSummary, render_vertical_report, write_report
@@ -91,8 +92,9 @@ class Pipeline:
         adapters = build_adapters(self.policy, self.settings, names)
         summary = CollectSummary(vertical=slug)
 
+        queries = effective_queries(vertical, self.settings, slug)
         with self.session_factory() as session:
-            for position, query_text in enumerate(vertical.get("queries", [])):
+            for position, query_text in enumerate(queries):
                 if position and any(
                     summary.by_source.get(name, {}).get("live") for name in names
                 ):

@@ -508,6 +508,99 @@ def landing(
 
 
 @app.command()
+def expand(
+    vertical: Annotated[str, typer.Option("--vertical", "-y", help="vertical slug")],
+    limit: Annotated[int, typer.Option("--limit", "-l", min=1, max=30)] = 10,
+    provider: Annotated[
+        str | None,
+        typer.Option("--provider", help="local | minimax (default: config)"),
+    ] = None,
+) -> None:
+    """Expand a vertical's seed queries into an intent-mixed set (seed_expand).
+
+    Input is operator-authored seeds only (no collected evidence leaves the
+    host). Output lands in config/expanded_queries/<slug>.yaml — prune it
+    before the next collect; that file IS the approval step.
+    """
+    import os
+
+    from evidence_engine.nlp.llm import LLMClient
+    from evidence_engine.nlp.query_expansion import (
+        ExpandedQuery,
+        expand_queries,
+        load_expanded,
+        save_expanded,
+    )
+
+    settings = Settings.load()
+    if provider:
+        os.environ["EE_LLM_PROVIDER"] = provider
+        settings = Settings.load()
+    vertical_data = load_verticals(settings).get(vertical)
+    if vertical_data is None:
+        typer.echo(f"unknown vertical {vertical!r}")
+        raise typer.Exit(1)
+
+    existing = [q.text for q in load_expanded(settings, vertical)]
+    client = LLMClient(settings)
+    if not client.health():
+        typer.echo(
+            f"llm provider {settings.llm_provider!r} unavailable — "
+            "check `ee doctor`"
+        )
+        raise typer.Exit(1)
+
+    fresh = expand_queries(
+        client,
+        vertical,
+        seeds=vertical_data.get("queries", []),
+        existing=existing,
+        limit=limit,
+    )
+    if not fresh:
+        typer.echo("expansion produced no new queries (provider error or all dups)")
+        raise typer.Exit(1)
+
+    merged = [
+        ExpandedQuery(text=q.text, intent=q.intent)
+        for q in load_expanded(settings, vertical)
+    ] + [ExpandedQuery(text=q.text, intent=q.intent) for q in fresh]
+    path = save_expanded(settings, vertical, merged, client.model_name)
+    typer.echo(f"+{len(fresh)} new queries ({len(merged)} total) -> {path}")
+    for query in fresh:
+        typer.echo(f"  [{query.intent}] {query.text}")
+
+
+@app.command()
+def queries(
+    vertical: Annotated[str | None, typer.Option("--vertical", "-y")] = None,
+) -> None:
+    """Show effective query sets: seeds + expansion sidecar."""
+    from evidence_engine.nlp.query_expansion import expanded_path, load_expanded
+
+    settings = Settings.load()
+    for slug, vertical_data in load_verticals(settings).items():
+        if vertical and slug != vertical:
+            continue
+        seeds = vertical_data.get("queries", [])
+        expanded = load_expanded(settings, slug)
+        sidecar = (
+            " (sidecar: "
+            + str(expanded_path(settings, slug).relative_to(settings.config_dir))
+            + ")"
+            if expanded
+            else ""
+        )
+        typer.echo(
+            f"{slug} — {len(seeds)} seed + {len(expanded)} expanded{sidecar}"
+        )
+        for query in seeds:
+            typer.echo(f"  seed       {query}")
+        for query in expanded:
+            typer.echo(f"  expanded   [{query.intent}] {query.text}")
+
+
+@app.command()
 def verticals() -> None:
     """List configured seed verticals."""
     settings = Settings.load()

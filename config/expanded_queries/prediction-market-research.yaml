@@ -1,0 +1,18 @@
+origin: llm-expansion (MiniMax-M2) — prune freely; collected on next run
+queries:
+- text: polymarket vs betfair fees comparison
+  intent: comparison
+- text: python library prediction market data
+  intent: transactional
+- text: is polymarket legal in europe
+  intent: problem_aware
+- text: free real-time market data no credit card
+  intent: workaround
+- text: how to export manifold markets data
+  intent: transactional
+- text: prediction market backtesting template excel
+  intent: transactional
+- text: best api crypto prediction markets
+  intent: comparison
+- text: coinmarketcap api alternatives free
+  intent: workaround

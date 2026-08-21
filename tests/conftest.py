@@ -83,8 +83,20 @@ class FakeAdapterModule:  # helper namespace for pipeline tests
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
+    # Isolated copy of the real config: tests may write sidecars (e.g.
+    # expanded_queries) without polluting the repo's config dir.
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    for name in (
+        "evidence_engine.yaml",
+        "source_policies.yaml",
+        "scoring_rubric.yaml",
+        "seed_verticals.yaml",
+    ):
+        source = REPO_ROOT / "config" / name
+        (config_dir / name).write_text(source.read_text(encoding="utf-8"))
     return Settings(
-        config_dir=REPO_ROOT / "config",
+        config_dir=config_dir,
         sqlite_path=tmp_path / "test.db",
         reports_dir=tmp_path / "reports",
         ideas_dir=tmp_path / "ideas",
