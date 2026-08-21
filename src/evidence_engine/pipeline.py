@@ -230,7 +230,12 @@ class Pipeline:
             )
 
             cluster_rows = []
-            for group in groups[:10]:
+            capped = groups[:10]  # compile only the top clusters per run
+            if len(groups) > len(capped):
+                logger.info(
+                    "clustering produced %d groups; compiling top %d", len(groups), len(capped)
+                )
+            for group in capped:
                 cluster_rows.append(
                     repo.create_cluster(
                         session,
@@ -243,7 +248,7 @@ class Pipeline:
                 )
 
             hypotheses = self._compile_hypotheses(
-                session, slug, groups, cluster_rows, originals, by_id, claims_rows
+                session, slug, capped, cluster_rows, originals, by_id, claims_rows
             )
             ideas_count = hypotheses["idea_count"]
 

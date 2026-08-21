@@ -134,3 +134,43 @@ def test_collect_all_returns_summary_per_vertical(
     assert len(batch.summaries) == 3
     assert batch.failed == {}
     assert all(summary.records > 0 for summary in batch.summaries)
+
+
+def test_pipeline_caps_clusters_at_ten(
+    fake_adapters, session_factory, settings, monkeypatch
+) -> None:
+    """Clustering past the top-10 cap must compile cleanly, not zip-crash.
+
+    Found live: an expanded query set produced 12 groups while cluster_rows
+    stayed capped at 10 — zip(..., strict=True) raised ValueError.
+    """
+    from types import SimpleNamespace
+
+    import evidence_engine.pipeline as pipeline_module
+    from evidence_engine.store import repository as repo
+
+    Pipeline(
+        settings=settings, session_factory=session_factory, embedder=FakeEmbedder()
+    ).run("local-ai-tooling", limit=3, use_llm=False)
+
+    with session_factory() as session:
+        ids = [
+            row.id
+            for row in repo.evidence_for_vertical(session, "local-ai-tooling")
+            if not row.is_duplicate_of
+        ]
+    assert len(ids) >= 2, "fake seed run must yield originals to split"
+
+    groups = [
+        SimpleNamespace(label=f"forced group {index}", member_ids=[ids[index % len(ids)]])
+        for index in range(12)  # more groups than the top-10 cap
+    ]
+    monkeypatch.setattr(
+        pipeline_module, "cluster_evidence", lambda *args, **kwargs: groups
+    )
+
+    result = Pipeline(
+        settings=settings, session_factory=session_factory, embedder=FakeEmbedder()
+    ).run("local-ai-tooling", limit=2, use_llm=False)
+    assert result.clusters == 10  # capped, not crashed
+    assert result.hypotheses == 10
