@@ -11,9 +11,7 @@ imply permitted-to-use.
 from __future__ import annotations
 
 import time
-from collections import Counter
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
 from pathlib import Path
 
 from evidence_engine.config import Settings, load_rubric, load_verticals
@@ -31,6 +29,7 @@ from evidence_engine.nlp.llm import LLMClient
 from evidence_engine.nlp.pain_claims import extract as extract_claims
 from evidence_engine.nlp.segment import split_sentences
 from evidence_engine.policy import PolicyRegistry, Purpose
+from evidence_engine.report import CollectSummary, render_vertical_report, write_report
 from evidence_engine.sources.registry import build_adapters
 from evidence_engine.store import init_db, make_engine, make_session_factory
 from evidence_engine.store import repository as repo
@@ -38,14 +37,6 @@ from evidence_engine.store import repository as repo
 logger = get_logger("pipeline")
 
 EMBED_BATCH = 16
-
-
-@dataclass
-class CollectSummary:
-    vertical: str
-    runs: int = 0
-    records: int = 0
-    by_source: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -204,7 +195,6 @@ class Pipeline:
                     )
                 )
 
-            ideas_count = 0
             hypotheses = self._compile_hypotheses(
                 session, slug, groups, cluster_rows, originals, by_id, claims_rows
             )
@@ -212,7 +202,18 @@ class Pipeline:
 
             session.commit()
 
-        report_path = self._write_report(slug, collect_summary, embed_mode)
+        with self.session_factory() as session:
+            markdown = render_vertical_report(
+                session,
+                slug,
+                settings=self.settings,
+                policy=self.policy,
+                rubric=self.rubric,
+                embedding_model=self.embedder.model_name,
+                collect_summary=collect_summary,
+                embed_mode=embed_mode,
+            )
+        report_path = write_report(markdown, self.settings, slug)
         return PipelineResult(
             vertical=slug,
             report_path=report_path,
@@ -373,139 +374,6 @@ class Pipeline:
             "extraction_mode": extraction_mode,
         }
 
-    # -- report ---------------------------------------------------------------
-    def _write_report(self, slug: str, collect_summary: CollectSummary, embed_mode: str) -> Path:
-        with self.session_factory() as session:
-            markdown = self._render_report(session, slug, collect_summary, embed_mode)
-        self.settings.reports_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
-        path = self.settings.reports_dir / f"{slug}-{stamp}.md"
-        path.write_text(markdown, encoding="utf-8")
-        logger.info("report written: %s", path)
-        return path
 
-    def _render_report(
-        self, session, slug: str, collect_summary: CollectSummary, embed_mode: str
-    ) -> str:
-        vertical = load_verticals(self.settings).get(slug, {})
-        all_rows = repo.evidence_for_vertical(session, slug, originals_only=False)
-        originals = [row for row in all_rows if not row.is_duplicate_of]
-        hypotheses = repo.hypotheses_for_vertical(session, slug)
-        ideas = sorted(
-            repo.ideas_for_vertical(session, slug), key=lambda i: i.score_total, reverse=True
-        )
-        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-
-        lines: list[str] = [
-            f"# Opportunity report — {vertical.get('name', slug)} (`{slug}`)",
-            "",
-            f"Generated {now} · evidence-engine 0.1.0 · policy v{self.policy.policy_version}",
-            "",
-            "> Scores are priors from documented heuristics, not validation.",
-            "> Advance only on costly action: deposit, paid pilot, repeat payment.",
-            "",
-            "## Collection",
-            "",
-            "| source | runs | records | status |",
-            "|---|---:|---:|---|",
-        ]
-        for name, entry in collect_summary.by_source.items():
-            status = entry.get("status", "ok")
-            reason = entry.get("reason")
-            lines.append(
-                f"| {name} | {entry.get('runs', 0)} | {entry.get('records', 0)} "
-                f"| {status}{': ' + reason[:80] if reason and status != 'ok' else ''} |"
-            )
-
-        dup_count = len(all_rows) - len(originals)
-        domains = len({row.domain for row in originals if row.domain})
-        lines += [
-            "",
-            "## Evidence",
-            "",
-            f"- total collected: **{len(all_rows)}** · duplicates removed: **{dup_count}** "
-            f"· independent evidence: **{len(originals)}** · unique domains: **{domains}**",
-            f"- embeddings: {embed_mode} ({self.embedder.model_name})",
-            "",
-            "| intent | share of independent evidence |",
-            "|---|---:|",
-        ]
-        counter = Counter(
-            label for row in originals for label in (row.intent_labels or [])
-        )
-        for label, count in counter.most_common():
-            share = count / max(len(originals), 1)
-            lines.append(f"| {label} | {share:.0%} ({count}) |")
-
-        lines += ["", "## Hypotheses", ""]
-        for hypothesis in hypotheses:
-            lines.append(f"### {hypothesis.title}")
-            lines.append("")
-            lines.append(f"- Buyer: {hypothesis.buyer or '—'}")
-            lines.append(f"- Job: {hypothesis.job or '—'}")
-            lines.append(f"- Pain: {hypothesis.pain or '—'}")
-            lines.append(f"- Current workaround: {hypothesis.current_workaround or '—'}")
-            lines.append(
-                f"- Paid alternative: {hypothesis.current_paid_alternative or '—'}"
-            )
-            lines.append(f"- Channel: {hypothesis.channel or '—'}")
-            lines.append(
-                f"- Evidence: {len(hypothesis.evidence_for or [])} for / "
-                f"{len(hypothesis.evidence_against or [])} against · "
-                f"compliance: {hypothesis.compliance_status}"
-            )
-            lines.append("")
-
-        lines += [
-            "## Scored ideas",
-            "",
-            "| idea | form | score | band | failed gates |",
-            "|---|---|---:|---|---|",
-        ]
-        for idea in ideas[:20]:
-            failed = [name for name, ok in (idea.gates or {}).items() if not ok]
-            lines.append(
-                f"| `{idea.id}` | {idea.form} | {idea.score_total:.0f} | "
-                f"{idea.band} | {', '.join(failed) or '—'} |"
-            )
-
-        for idea in ideas[:3]:
-            hypothesis = repo.get_hypothesis(session, idea.hypothesis_id)
-            if hypothesis is None:
-                continue
-            defaults = self.rubric.get("experiment_defaults") or {}
-            spec = draft_experiment_spec(idea, hypothesis, defaults)
-            lines += [
-                "",
-                f"## Next up: `{idea.id}` — {idea.pitch}",
-                "",
-                f"- Smallest paid test: {idea.smallest_paid_test}",
-                f"- Pricing mechanism: {idea.pricing_mechanism}",
-                f"- CAC ceiling: ${spec['economics_guardrail']['cac_ceiling']}"
-                f" ({defaults.get('cac_payback_months', 6)}-month payback)",
-                f"- Dimensions: {idea.score_dimensions}",
-            ]
-
-        lines += [
-            "",
-            "## Compliance footer",
-            "",
-            "| source | enabled | store_derived | commercial_use | retention |",
-            "|---|---|---|---|---|",
-        ]
-        for name, source_policy in sorted(self.policy.all_sources().items()):
-            rights = source_policy.rights
-            lines.append(
-                f"| {name} | {source_policy.enabled} | {rights.store_derived} "
-                f"| {rights.commercial_use} | {source_policy.retention_days or '—'}d |"
-            )
-        lines += [
-            "",
-            "_evidence_engine — rights-aware evidence-to-revenue "
-            "(docs/design/evidence-to-revenue.md)_",
-        ]
-        return "\n".join(lines) + "\n"
-
-
-# re-exported for CLI convenience
+# re-exported for CLI convenience (CollectSummary lives in report.py)
 __all__ = ["CollectSummary", "Pipeline", "PipelineResult", "purge_expired"]

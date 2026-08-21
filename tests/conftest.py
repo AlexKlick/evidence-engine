@@ -111,3 +111,45 @@ def session_factory(settings: Settings):
 def session(session_factory):
     with session_factory() as db_session:
         yield db_session
+
+
+@pytest.fixture
+def fake_adapters(monkeypatch) -> None:
+    """Replace the adapter registry with an offline fake 'searxng'."""
+    import evidence_engine.pipeline as pipeline_module
+    from evidence_engine.sources.base import SourceAdapter, SourceBatch, SourceRecord
+
+    class FakeLiveAdapter(SourceAdapter):
+        name = "searxng"
+        version = "test"
+
+        def _collect(self, query: str, limit: int) -> SourceBatch:
+            import re as _re
+
+            records = [
+                SourceRecord(
+                    url=(
+                        "https://site"
+                        f"{index}.com/docs/{_re.sub(r'[^a-z0-9]+', '', query.lower())}"
+                    ),
+                    title=f"how do i {query} step {index} spreadsheet",
+                    snippet=(
+                        "manual workaround takes forever; pricing per month is too "
+                        "expensive, best alternative to BigTool comparison"
+                    ),
+                    engine="fake",
+                )
+                for index in range(3)
+            ]
+            return SourceBatch(
+                source=self.name,
+                adapter_version=self.version,
+                status="ok",
+                records=records,
+            )
+
+    monkeypatch.setattr(
+        pipeline_module,
+        "build_adapters",
+        lambda policy, settings, names=None: {"searxng": FakeLiveAdapter(policy)},
+    )

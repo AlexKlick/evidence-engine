@@ -2,47 +2,8 @@
 
 from __future__ import annotations
 
-import re
-
-import pytest
-
-import evidence_engine.pipeline as pipeline_module
 from conftest import FakeEmbedder, FakeLLM
 from evidence_engine.pipeline import Pipeline
-from evidence_engine.sources.base import SourceAdapter, SourceBatch, SourceRecord
-
-
-class FakeLiveAdapter(SourceAdapter):
-    """Pretends to be searxng (the enabled entitlement) with canned results."""
-
-    name = "searxng"
-    version = "test"
-
-    def _collect(self, query: str, limit: int) -> SourceBatch:
-        records = [
-            SourceRecord(
-                url=f"https://site{index}.com/docs/{re.sub(r'[^a-z0-9]+', '', query.lower())}",
-                title=f"how do i {query} step {index} spreadsheet",
-                snippet=(
-                    "manual workaround takes forever; pricing per month is too "
-                    "expensive, best alternative to BigTool comparison"
-                ),
-                engine="fake",
-            )
-            for index in range(3)
-        ]
-        return SourceBatch(
-            source=self.name, adapter_version=self.version, status="ok", records=records
-        )
-
-
-@pytest.fixture
-def fake_adapters(monkeypatch) -> None:
-    monkeypatch.setattr(
-        pipeline_module,
-        "build_adapters",
-        lambda policy, settings, names=None: {"searxng": FakeLiveAdapter(policy)},
-    )
 
 
 def run_pipeline(session_factory, settings, use_llm: bool):

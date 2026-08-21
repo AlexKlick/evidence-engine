@@ -100,8 +100,9 @@ class Settings:
         paths = raw.get("paths", {}) or {}
         defaults = raw.get("defaults", {}) or {}
 
-        def _dir(key: str, fallback: Path) -> Path:
-            p = Path(paths.get(key) or fallback.name)
+        def _dir(key: str, fallback: Path, env: str = "") -> Path:
+            override = os.environ.get(env) if env else None
+            p = Path(override or paths.get(key) or fallback.name)
             return p if p.is_absolute() else REPO_ROOT / p
 
         return cls(
@@ -125,8 +126,8 @@ class Settings:
             semantic_duplicate_threshold=float(pipe.get("semantic_duplicate_threshold", 0.97)),
             cluster_similarity_threshold=float(pipe.get("cluster_similarity_threshold", 0.72)),
             use_llm_extraction=bool(pipe.get("use_llm_extraction", True)),
-            reports_dir=_dir("reports_dir", REPO_ROOT / "reports"),
-            ideas_dir=_dir("ideas_dir", REPO_ROOT / "ideas"),
+            reports_dir=_dir("reports_dir", REPO_ROOT / "reports", env="EE_REPORTS_DIR"),
+            ideas_dir=_dir("ideas_dir", REPO_ROOT / "ideas", env="EE_IDEAS_DIR"),
             default_sources=list(defaults.get("sources", ["searxng"])),
             default_max_results=int(defaults.get("max_results_per_query", 10)),
         )

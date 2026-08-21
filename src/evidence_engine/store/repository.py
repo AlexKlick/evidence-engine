@@ -277,6 +277,21 @@ def ideas_for_vertical(session: Session, vertical: str) -> list[ProductIdea]:
     return list(session.execute(stmt).scalars())
 
 
+def ideas_for_hypothesis(session: Session, hypothesis_id: str) -> list[ProductIdea]:
+    stmt = select(ProductIdea).where(ProductIdea.hypothesis_id == hypothesis_id)
+    return list(session.execute(stmt).scalars())
+
+
+def latest_snapshot(session: Session, idea_id: str) -> ScoreSnapshot | None:
+    stmt = (
+        select(ScoreSnapshot)
+        .where(ScoreSnapshot.idea_id == idea_id)
+        .order_by(ScoreSnapshot.created_at.desc())
+        .limit(1)
+    )
+    return session.execute(stmt).scalar_one_or_none()
+
+
 def get_idea(session: Session, idea_id: str) -> ProductIdea | None:
     return session.get(ProductIdea, idea_id)
 

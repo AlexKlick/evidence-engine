@@ -47,7 +47,12 @@ uv run ee doctor             # health: DB, SearXNG :8018, LLM :18000, embeddings
 uv run ee policy show        # entitlement registry + reasons
 uv run ee collect --vertical local-ai-tooling --limit 5
 uv run ee pipeline --vertical local-ai-tooling --limit 5   # → reports/<vertical>-<date>.md
-uv run ee ideas list
+uv run ee report --vertical local-ai-tooling               # regenerate report from the store
+uv run ee ideas list [--band collect_more]
+# operator loop: review the human gate, record outcomes, watch calibration
+uv run ee review --hypothesis <hyp-id> --buyer "..." --channel search --smallest-paid-test "..."
+uv run ee outcomes record --experiment <exp-id> --kind deposit_paid --value '{"amount":50}'
+uv run ee calibration
 uv run ee bootstrap --idea <idea-id> --out ideas/          # scaffold a project folder
 ```
 
@@ -64,7 +69,7 @@ src/evidence_engine/
   sources/         adapters: searxng (live) + google_ads/serp_provider/youtube/reddit/web_crawler (gated stubs)
   store/           SQLAlchemy evidence graph: query→run→evidence→claims→clusters→hypotheses→ideas→experiments→outcomes
   nlp/             normalize, dedupe (exact/near/semantic), intent taxonomy, embeddings, pain-claim extraction, clustering
-  ideas/           hypothesis compiler, product forms, weighted rubric + hard gates, feature snapshots
+  ideas/           hypothesis compiler, product forms, weighted rubric + hard gates, feature snapshots, human review
   experiments/     experiment specs, landing-page draft, payments stub, outcome recorder
   bootstrap/       per-idea project scaffold generator (PRD/evidence/pricing/acquisition/experiment.yaml)
   ranking/         no-hindsight feature snapshots + calibration (stub; learns from outcomes later)

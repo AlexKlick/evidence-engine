@@ -33,7 +33,7 @@ class CalibrationDataset:
 def assemble_calibration_dataset(session: Session) -> CalibrationDataset:
     """Join score snapshots with their experiments' outcomes."""
     rows: list[dict] = []
-    outcome_count = 0
+    distinct_outcomes: set[str] = set()
     snapshots = list(session.execute(select(ScoreSnapshot)).scalars())
     for snapshot in snapshots:
         experiments = list(
@@ -49,7 +49,7 @@ def assemble_calibration_dataset(session: Session) -> CalibrationDataset:
                 ).scalars()
             )
             outcomes.extend(found)
-        outcome_count += len(outcomes)
+        distinct_outcomes.update(outcome.id for outcome in outcomes)
         rows.append(
             {
                 "snapshot_id": snapshot.id,
@@ -57,12 +57,12 @@ def assemble_calibration_dataset(session: Session) -> CalibrationDataset:
                 "features": snapshot.features,
                 "total": snapshot.total,
                 "outcomes": [
-                    {"kind": o.kind, "value": o.value} for o in outcomes
+                    {"kind": outcome.kind, "value": outcome.value} for outcome in outcomes
                 ],
             }
         )
     return CalibrationDataset(
         rows=rows,
-        outcome_count=outcome_count,
-        ready_to_fit=outcome_count >= MIN_OUTCOMES_FOR_FIT,
+        outcome_count=len(distinct_outcomes),
+        ready_to_fit=len(distinct_outcomes) >= MIN_OUTCOMES_FOR_FIT,
     )

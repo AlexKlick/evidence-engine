@@ -32,8 +32,13 @@ source of truth for behavior).
 
 ## Key entry points
 
-- CLI: `uv run ee --help` (doctor, policy, collect, pipeline, ideas, bootstrap, deletions).
-- Pipeline orchestration: `src/evidence_engine/pipeline.py`.
+- CLI: `uv run ee --help` (doctor, policy, collect, pipeline, report, ideas,
+  review, outcomes, calibration, bootstrap, deletions, verticals).
+- Pipeline orchestration: `src/evidence_engine/pipeline.py`; report rendering
+  is standalone in `src/evidence_engine/report.py` (`ee report` regenerates
+  without collecting).
+- Human review (`ee review`) rescores ideas against STORED feature snapshots —
+  features never change retroactively; only gates/bands respond to review.
 - Entitlement registry: `config/source_policies.yaml` + `src/evidence_engine/policy/`.
 
 ## Gates
