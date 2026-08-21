@@ -44,6 +44,9 @@ class RightsProfile(BaseModel):
     redisplay_raw_content: bool = False
     commercial_use: bool = False
     deletion_propagates: bool = False
+    # Operator sign-off recorded when external_inference is deliberately
+    # enabled (who/when/scope). Lint flags external_inference without it.
+    external_inference_authorization: str | None = None
 
 
 class SourcePolicy(BaseModel):
@@ -188,10 +191,12 @@ class PolicyRegistry:
                 problems.append(f"{name}: enabled but rights.collect_enabled is false")
             if policy.rights.store_raw and policy.rights.retention_days is None:
                 problems.append(f"{name}: store_raw without retention_days")
-            if policy.rights.external_inference and not policy.rights.commercial_use:
+            rights = policy.rights
+            if rights.external_inference and not rights.external_inference_authorization:
                 problems.append(
-                    f"{name}: external_inference true while commercial_use false "
-                    "(sending collected data to third-party models needs review)"
+                    f"{name}: external_inference true without "
+                    "external_inference_authorization (operator sign-off required "
+                    "before collected data leaves the host)"
                 )
             if policy.enabled and not policy.disabled_reason and policy.disabled_reason == "":
                 pass  # enabled sources need no disabled_reason

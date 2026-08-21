@@ -16,13 +16,23 @@ searxng:
   language: "en"
 
 llm:
-  # text-main lane (loopback). Local inference is governed by each source's
-  # rights.local_inference flag, not by external_inference.
+  # Provider: "local" (loopback text-main) or "minimax" (hosted MiniMax M2).
+  # Hosted inference over collected evidence requires the EXTERNAL_INFERENCE
+  # right on every involved source — policy v2 authorizes it for searxng
+  # derived data (see config/source_policies.yaml).
+  # Env overrides: EE_LLM_PROVIDER, EE_LLM_BASE_URL, EE_LLM_MODEL.
+  provider: "local"
   base_url: "http://127.0.0.1:18000/v1"
   model: "Qwen/Qwen3.8-27B"
   timeout_seconds: 240
   max_batch_evidences: 6   # evidences per extraction call
   max_evidences_per_run: 24
+  minimax:
+    # Coding-Plan-covered path is the Anthropic-compatible endpoint; the
+    # OpenAI-style /v1/chat/completions returns 1008 insufficient balance.
+    base_url: "https://api.minimax.io/anthropic/v1"
+    model: "MiniMax-M2"
+    api_key_env: "ANTHROPIC_AUTH_TOKEN_MINIMAX2"
 
 embeddings:
   base_url: "http://127.0.0.1:6900/v1"

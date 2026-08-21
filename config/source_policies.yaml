@@ -12,7 +12,7 @@
 #   COLLECT, STORE_DERIVED, STORE_RAW, AGGREGATE, LOCAL_INFERENCE,
 #   EXTERNAL_INFERENCE, TRAINING, REDISPLAY
 
-policy_version: 1
+policy_version: 2
 
 sources:
   searxng:
@@ -24,11 +24,18 @@ sources:
       store_raw: false           # no full provider payloads retained
       aggregate: true            # clustering/scoring across queries
       local_inference: true      # loopback models (:18000/:6900)
-      external_inference: false  # never send to third-party hosted models
+      external_inference: true   # policy v2: operator-approved for MiniMax M2 (below)
       model_training: false
       redisplay_raw_content: false
       commercial_use: false      # personal venture research; not cleared for resale
       deletion_propagates: false # no upstream deletion API; retention TTL instead
+      external_inference_authorization: >-
+        Operator-approved 2026-08-21: derived search titles/snippets only (no
+        raw payloads, no PII targeting) sent to hosted MiniMax M2
+        (api.minimax.io, personal Coding Plan) for structured claim
+        extraction, because the local text-main lane is GPU-blocked. Scope:
+        extraction only; model_training and commercial_use stay false. Revoke
+        by setting external_inference back to false and bumping policy_version.
     retention_days: 180
     notes: >-
       Self-hosted SearXNG (loopback :8018) querying upstream engines indirectly.

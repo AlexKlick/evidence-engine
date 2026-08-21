@@ -9,7 +9,7 @@ import pytest
 
 from evidence_engine.config import REPO_ROOT, Settings
 from evidence_engine.nlp.embeddings import EmbeddingClient
-from evidence_engine.policy import PolicyRegistry
+from evidence_engine.policy import PolicyRegistry, Purpose
 from evidence_engine.store import init_db, make_engine, make_session_factory
 
 FAKE_DIM = 16
@@ -43,6 +43,7 @@ class FakeLLM:
     """Offline stand-in returning one claim per evidence, citing its id."""
 
     model_name = "fake-llm"
+    inference_purpose = Purpose.LOCAL_INFERENCE  # class attr: fine as property stand-in
 
     def __init__(self) -> None:
         self.calls: list[str] = []

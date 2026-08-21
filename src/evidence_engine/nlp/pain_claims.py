@@ -93,7 +93,7 @@ def extract_with_llm(
     valid_ids = {e.id for e in selected}
     for start in range(0, len(selected), batch_size):
         batch = selected[start : start + batch_size]
-        raw = llm.chat_json(SYSTEM_PROMPT, _user_prompt(batch))
+        raw = llm.chat_json(SYSTEM_PROMPT, _user_prompt(batch), max_tokens=4096)
         claims.extend(_sanitize_claims(raw, valid_ids, llm.model_name))
     return claims
 

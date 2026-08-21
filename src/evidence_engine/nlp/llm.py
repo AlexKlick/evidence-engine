@@ -1,12 +1,18 @@
-"""LLM client for the loopback text-main lane (:18000).
+"""LLM client: loopback text-main lane (:18000) or hosted MiniMax (M2).
 
-Local inference only — governed by each source's rights.local_inference flag.
+Provider is config/env selected (`llm.provider` / EE_LLM_PROVIDER). Which
+rights purpose applies follows the provider:
+
+  local   -> rights.local_inference      (loopback, ADR-0001 default)
+  minimax -> rights.external_inference   (operator-authorized, policy v2)
+
 JSON contract: strict prompt + fence-stripping parse + one retry.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any
 
@@ -14,6 +20,7 @@ import httpx
 
 from evidence_engine.config import Settings
 from evidence_engine.logging_setup import get_logger
+from evidence_engine.policy import Purpose
 
 logger = get_logger("nlp.llm")
 
@@ -36,17 +43,57 @@ class LLMClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
+    # -- provider awareness ---------------------------------------------------
+    @property
+    def provider(self) -> str:
+        return self._settings.llm_provider
+
+    @property
+    def is_external(self) -> bool:
+        return self._settings.llm_provider != "local"
+
+    @property
+    def inference_purpose(self) -> Purpose:
+        """The rights purpose this provider's inference requires."""
+        return Purpose.EXTERNAL_INFERENCE if self.is_external else Purpose.LOCAL_INFERENCE
+
     @property
     def model_name(self) -> str:
         return self._settings.llm_model
 
+    def _api_key(self) -> str:
+        if not self.is_external:
+            return ""
+        key = os.environ.get(self._settings.llm_api_key_env, "")
+        if not key:
+            raise LLMUnavailableError(
+                f"{self._settings.llm_api_key_env} not set — required for "
+                f"provider {self.provider!r}"
+            )
+        return key
+
+    def _headers(self) -> dict[str, str]:
+        if not self.is_external:
+            return {}
+        # Anthropic-compatible endpoint (MiniMax Coding Plan coverage).
+        return {
+            "x-api-key": self._api_key(),
+            "anthropic-version": "2023-06-01",
+        }
+
+    # -- API ------------------------------------------------------------------
     def health(self, timeout: float = 5.0) -> bool:
         try:
+            base = self._settings.llm_base_url.rstrip("/")
+            # external provider: model list lives on the openplatform root
+            models_url = base.replace("/anthropic/v1", "/v1") + "/models"
             response = httpx.get(
-                f"{self._settings.llm_base_url.rstrip('/')}/models", timeout=timeout
+                models_url,
+                headers={"Authorization": f"Bearer {self._api_key()}"},
+                timeout=timeout,
             )
             return response.status_code == 200
-        except httpx.HTTPError:
+        except (httpx.HTTPError, LLMUnavailableError):
             return False
 
     def chat(
@@ -56,9 +103,33 @@ class LLMClient:
         max_tokens: int = 2048,
         temperature: float = 0.0,
     ) -> str:
+        base = self._settings.llm_base_url.rstrip("/")
         try:
+            if self.is_external:
+                # Anthropic Messages shape; MiniMax-M2 emits thinking blocks —
+                # only text blocks carry the answer.
+                response = httpx.post(
+                    f"{base}/messages",
+                    headers=self._headers(),
+                    json={
+                        "model": self._settings.llm_model,
+                        "system": system,
+                        "max_tokens": max_tokens,
+                        "temperature": temperature,
+                        "messages": [{"role": "user", "content": user}],
+                    },
+                    timeout=self._settings.llm_timeout,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                blocks = payload.get("content") or []
+                return "".join(
+                    block.get("text", "")
+                    for block in blocks
+                    if block.get("type") == "text"
+                )
             response = httpx.post(
-                f"{self._settings.llm_base_url.rstrip('/')}/chat/completions",
+                f"{base}/chat/completions",
                 json={
                     "model": self._settings.llm_model,
                     "messages": [

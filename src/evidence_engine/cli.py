@@ -75,12 +75,22 @@ def doctor(
     )
 
     if not offline:
+        from evidence_engine.nlp.llm import LLMClient
+
+        llm_client = LLMClient(settings)
+        llm_ok = llm_client.health()
+        checks.append(
+            (
+                f"llm [{settings.llm_provider}]",
+                llm_ok,
+                f"{settings.llm_model}",
+            )
+        )
         for name, url in [
             (
                 "searxng",
                 f"{settings.searxng_base_url}/search?q=health%20check&format=json",
             ),
-            ("llm :18000", f"{settings.llm_base_url}/models"),
             ("embeddings :6900", f"{settings.embeddings_base_url}/models"),
         ]:
             try:

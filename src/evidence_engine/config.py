@@ -41,6 +41,13 @@ class Settings:
     searxng_language: str = "en"
     llm_base_url: str = "http://127.0.0.1:18000/v1"
     llm_model: str = "Qwen/Qwen3.8-27B"
+    # "local" (loopback) | "minimax" (hosted; needs EXTERNAL_INFERENCE right)
+    llm_provider: str = "local"
+    llm_api_key_env: str = "ANTHROPIC_AUTH_TOKEN_MINIMAX2"
+    # MiniMax Coding Plan covers the Anthropic-compatible endpoint; the
+    # OpenAI-style /v1/chat/completions path is pay-as-you-go (1008 balance).
+    minimax_base_url: str = "https://api.minimax.io/anthropic/v1"
+    minimax_model: str = "MiniMax-M2"
     llm_timeout: float = 240.0
     llm_max_batch: int = 6
     llm_max_evidences: int = 24
@@ -95,6 +102,7 @@ class Settings:
 
         searx = raw.get("searxng", {}) or {}
         llm = raw.get("llm", {}) or {}
+        minimax = llm.get("minimax", {}) or {}
         emb = raw.get("embeddings", {}) or {}
         pipe = raw.get("pipeline", {}) or {}
         paths = raw.get("paths", {}) or {}
@@ -105,6 +113,17 @@ class Settings:
             p = Path(override or paths.get(key) or fallback.name)
             return p if p.is_absolute() else REPO_ROOT / p
 
+        # LLM provider resolution: local loopback by default; "minimax" routes
+        # extraction to the hosted MiniMax API (external-inference rights apply).
+        provider = (os.environ.get("EE_LLM_PROVIDER") or llm.get("provider") or "local").lower()
+        if provider == "minimax":
+            base_default = minimax.get("base_url", "https://api.minimax.io/v1")
+            model_default = minimax.get("model", "MiniMax-M2")
+        else:
+            provider = "local"
+            base_default = llm.get("base_url", "http://127.0.0.1:18000/v1")
+            model_default = llm.get("model", "Qwen/Qwen3.8-27B")
+
         return cls(
             config_dir=config_dir,
             database_dsn=db.get("dsn") or "",
@@ -114,8 +133,16 @@ class Settings:
             searxng_max_results=int(searx.get("max_results_per_query", 10)),
             searxng_delay=float(searx.get("delay_seconds", 0.5)),
             searxng_language=searx.get("language", "en"),
-            llm_base_url=llm.get("base_url", "http://127.0.0.1:18000/v1"),
-            llm_model=llm.get("model", "Qwen/Qwen3.8-27B"),
+            llm_provider=provider,
+            llm_base_url=os.environ.get("EE_LLM_BASE_URL") or base_default,
+            llm_model=os.environ.get("EE_LLM_MODEL") or model_default,
+            llm_api_key_env=minimax.get(
+                "api_key_env", "ANTHROPIC_AUTH_TOKEN_MINIMAX2"
+            ),
+            minimax_base_url=minimax.get(
+                "base_url", "https://api.minimax.io/anthropic/v1"
+            ),
+            minimax_model=minimax.get("model", "MiniMax-M2"),
             llm_timeout=float(llm.get("timeout_seconds", 240.0)),
             llm_max_batch=int(llm.get("max_batch_evidences", 6)),
             llm_max_evidences=int(llm.get("max_evidences_per_run", 24)),

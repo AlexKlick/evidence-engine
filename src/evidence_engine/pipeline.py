@@ -262,7 +262,7 @@ class Pipeline:
     def _extract(self, session, originals: list, use_llm: bool):
         llm = None
         if use_llm and self._gate_all(
-            {row.source for row in originals}, Purpose.LOCAL_INFERENCE
+            {row.source for row in originals}, self.llm.inference_purpose
         ):
             llm = self.llm
         result = extract_claims(
