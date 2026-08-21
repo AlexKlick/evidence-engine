@@ -84,3 +84,53 @@ def test_collect_denied_source_records_reason(session_factory, settings, monkeyp
     assert summary.by_source["reddit"]["status"] == "disabled"
     assert "separate agreement" in summary.by_source["reddit"]["reason"]
     assert summary.records == 0
+
+
+def test_run_all_processes_every_configured_vertical(
+    fake_adapters, session_factory, settings
+) -> None:
+    batch = Pipeline(
+        settings=settings, session_factory=session_factory, embedder=FakeEmbedder()
+    ).run_all(limit=2, use_llm=False)
+    # seed-file order: local-ai-tooling, solo-dev-saas, prediction-market-research
+    assert [result.vertical for result in batch.results] == [
+        "local-ai-tooling",
+        "solo-dev-saas",
+        "prediction-market-research",
+    ]
+    assert batch.failed == {}
+    assert all(result.report_path.exists() for result in batch.results)
+
+
+def test_run_all_isolates_vertical_failures(
+    fake_adapters, session_factory, settings, monkeypatch
+) -> None:
+    pipeline = Pipeline(
+        settings=settings, session_factory=session_factory, embedder=FakeEmbedder()
+    )
+    original = pipeline.run
+
+    def failing(slug, limit=None, use_llm=None):
+        if slug == "solo-dev-saas":
+            raise RuntimeError("boom")
+        return original(slug, limit=limit, use_llm=use_llm)
+
+    monkeypatch.setattr(pipeline, "run", failing)
+    batch = pipeline.run_all(limit=2, use_llm=False)
+    assert [result.vertical for result in batch.results] == [
+        "local-ai-tooling",
+        "prediction-market-research",
+    ]
+    assert set(batch.failed) == {"solo-dev-saas"}
+    assert batch.failed["solo-dev-saas"]
+
+
+def test_collect_all_returns_summary_per_vertical(
+    fake_adapters, session_factory, settings
+) -> None:
+    batch = Pipeline(
+        settings=settings, session_factory=session_factory, embedder=FakeEmbedder()
+    ).collect_all(limit=2)
+    assert len(batch.summaries) == 3
+    assert batch.failed == {}
+    assert all(summary.records > 0 for summary in batch.summaries)

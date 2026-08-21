@@ -47,6 +47,7 @@ uv run ee doctor             # health: DB, SearXNG :8018, LLM :18000, embeddings
 uv run ee policy show        # entitlement registry + reasons
 uv run ee collect --vertical local-ai-tooling --limit 5
 uv run ee pipeline --vertical local-ai-tooling --limit 5   # → reports/<vertical>-<date>.md
+uv run ee pipeline --all --limit 5                         # every configured vertical
 uv run ee report --vertical local-ai-tooling               # regenerate report from the store
 uv run ee ideas list [--band collect_more]
 # decision support: what to review, who you'd displace, what to ship
@@ -67,6 +68,34 @@ workstation `MODEL_CONTRACT.json`; while GPU 0 is unavailable, set
 `~/.claude/.env`) to extract via hosted MiniMax-M2 — authorized for derived
 searxng data under policy v2's `external_inference_authorization`.
 
+## Nightly operator loop
+
+`scripts/nightly.sh` runs `ee pipeline --all --no-llm` (deterministic — no
+key or loopback dependency) plus the retention purge, under a flock so runs
+never overlap, logging to `gate-logs/nightly-<stamp>.log` and exiting
+non-zero when any vertical fails. Install once:
+
+```bash
+crontab -e
+# 17 3 * * * /home/alexk/documents/evidence_engine/scripts/nightly.sh
+```
+
+A second collection day is what makes the report's velocity line compute
+(evidence-rate ratio vs the day-1 baseline). LLM extraction in the nightly is
+opt-in via `EE_NIGHTLY_USE_LLM=1` in the service/cron environment.
+
+This workstation can't write crontab (`/var/spool/cron` denied), so the
+installed mechanism is a **systemd user timer** — `evidence-engine-nightly.timer`
+at 03:17 local, `Persistent=true`:
+
+```bash
+mkdir -p ~/.config/systemd/user
+# service: ExecStart=<repo>/scripts/nightly.sh, WorkingDirectory=<repo>
+# timer: OnCalendar=*-*-* 03:17:00, Persistent=true
+systemctl --user daemon-reload && systemctl --user enable --now evidence-engine-nightly.timer
+systemctl --user list-timers evidence-engine-nightly.timer
+```
+
 ## Layout
 
 ```
@@ -85,6 +114,7 @@ src/evidence_engine/
   cli.py           typer CLI (`evidence-engine` / `ee`)
 tests/             pytest suite (policy gate, adapters, dedupe, intent, scoring, deletion lineage, CLI)
 scripts/gate.sh    local gate: ruff + pytest with logged counts (NO hosted CI — hard rule)
+scripts/nightly.sh nightly operator ritual: pipeline --all + retention purge (flock, cron)
 ```
 
 ## Storage

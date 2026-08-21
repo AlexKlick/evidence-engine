@@ -45,6 +45,45 @@ def _pipeline() -> Pipeline:
     return Pipeline()
 
 
+def _resolve_verticals(vertical: str | None, all_: bool) -> list[str] | None:
+    """Validate --vertical vs --all; None means every configured vertical."""
+    if all_ and vertical:
+        typer.echo("error: pass either --vertical or --all, not both")
+        raise typer.Exit(1)
+    if not all_ and not vertical:
+        typer.echo("error: --vertical is required (or use --all)")
+        raise typer.Exit(1)
+    return None if all_ else [vertical]
+
+
+def _echo_batch_failures(ok: int, failed: dict[str, str]) -> None:
+    """Final batch line; exit non-zero when any vertical failed (for cron)."""
+    typer.echo(f"{ok} verticals ok · {len(failed)} failed")
+    for slug, message in failed.items():
+        typer.echo(f"  failed: {slug} ({message})")
+    if failed:
+        raise typer.Exit(1)
+
+
+def _echo_collect_summary(summary) -> None:
+    typer.echo(
+        f"collected {summary.records} records over {summary.runs} runs "
+        f"for {summary.vertical}"
+    )
+    for name, entry in summary.by_source.items():
+        typer.echo(f"  {name}: {entry.get('status', 'ok')} ({entry.get('records', 0)} records)")
+
+
+def _echo_pipeline_result(result) -> None:
+    typer.echo(f"vertical:        {result.vertical}")
+    typer.echo(f"records:         {result.collect.records}")
+    typer.echo(f"independent:     {result.originals} (duplicates: {result.duplicates})")
+    typer.echo(f"claims:          {result.claims} ({result.extraction_mode})")
+    typer.echo(f"clusters:        {result.clusters}")
+    typer.echo(f"hypotheses/ideas: {result.hypotheses} / {result.ideas}")
+    typer.echo(f"report:          {result.report_path}")
+
+
 @app.command()
 def doctor(
     offline: Annotated[bool, typer.Option("--offline", help="skip network checks")] = False,
@@ -146,7 +185,12 @@ def policy_lint() -> None:
 
 @app.command()
 def collect(
-    vertical: Annotated[str, typer.Option("--vertical", "-y", help="vertical slug")],
+    vertical: Annotated[
+        str | None, typer.Option("--vertical", "-y", help="vertical slug")
+    ] = None,
+    all_: Annotated[
+        bool, typer.Option("--all", help="run every configured vertical")
+    ] = False,
     limit: Annotated[int, typer.Option("--limit", "-l", min=1, max=30)] = 10,
     source: Annotated[
         list[str] | None,
@@ -154,31 +198,38 @@ def collect(
     ] = None,
 ) -> None:
     """Run enabled adapters for a vertical (policy gate enforced)."""
+    _resolve_verticals(vertical, all_)
     pipeline = _pipeline()
-    summary = pipeline.collect(vertical, limit=limit, sources=list(source) if source else None)
-    typer.echo(
-        f"collected {summary.records} records over {summary.runs} runs "
-        f"for {summary.vertical}"
-    )
-    for name, entry in summary.by_source.items():
-        typer.echo(f"  {name}: {entry.get('status', 'ok')} ({entry.get('records', 0)} records)")
+    sources = list(source) if source else None
+    if all_:
+        batch = pipeline.collect_all(limit=limit, sources=sources)
+        for summary in batch.summaries:
+            _echo_collect_summary(summary)
+        _echo_batch_failures(len(batch.summaries), batch.failed)
+        return
+    _echo_collect_summary(pipeline.collect(vertical, limit=limit, sources=sources))
 
 
 @app.command("pipeline")
 def pipeline_run(
-    vertical: Annotated[str, typer.Option("--vertical", "-y", help="vertical slug")],
+    vertical: Annotated[
+        str | None, typer.Option("--vertical", "-y", help="vertical slug")
+    ] = None,
+    all_: Annotated[
+        bool, typer.Option("--all", help="run every configured vertical")
+    ] = False,
     limit: Annotated[int, typer.Option("--limit", "-l", min=1, max=30)] = 8,
     no_llm: Annotated[bool, typer.Option("--no-llm", help="heuristic extraction only")] = False,
 ) -> None:
     """Collect + process + score + report (full loop)."""
-    result = _pipeline().run(vertical, limit=limit, use_llm=not no_llm)
-    typer.echo(f"vertical:        {result.vertical}")
-    typer.echo(f"records:         {result.collect.records}")
-    typer.echo(f"independent:     {result.originals} (duplicates: {result.duplicates})")
-    typer.echo(f"claims:          {result.claims} ({result.extraction_mode})")
-    typer.echo(f"clusters:        {result.clusters}")
-    typer.echo(f"hypotheses/ideas: {result.hypotheses} / {result.ideas}")
-    typer.echo(f"report:          {result.report_path}")
+    _resolve_verticals(vertical, all_)
+    if all_:
+        batch = _pipeline().run_all(limit=limit, use_llm=not no_llm)
+        for result in batch.results:
+            _echo_pipeline_result(result)
+        _echo_batch_failures(len(batch.results), batch.failed)
+        return
+    _echo_pipeline_result(_pipeline().run(vertical, limit=limit, use_llm=not no_llm))
 
 
 @app.command()

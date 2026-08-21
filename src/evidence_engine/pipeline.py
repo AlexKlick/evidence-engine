@@ -11,7 +11,7 @@ imply permitted-to-use.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from evidence_engine.config import Settings, load_rubric, load_verticals
@@ -52,6 +52,22 @@ class PipelineResult:
     hypotheses: int = 0
     ideas: int = 0
     extraction_mode: str = "heuristic"
+
+
+@dataclass
+class PipelineBatch:
+    """run_all() outcome: one result per vertical that succeeded."""
+
+    results: list[PipelineResult] = field(default_factory=list)
+    failed: dict[str, str] = field(default_factory=dict)  # slug -> error
+
+
+@dataclass
+class CollectBatch:
+    """collect_all() outcome: one summary per vertical that succeeded."""
+
+    summaries: list[CollectSummary] = field(default_factory=list)
+    failed: dict[str, str] = field(default_factory=dict)  # slug -> error
 
 
 class Pipeline:
@@ -142,6 +158,35 @@ class Pipeline:
                     summary.records += len(events)
             session.commit()
         return summary
+
+    # -- batch (every configured vertical) ------------------------------------
+    def collect_all(
+        self, limit: int | None = None, sources: list[str] | None = None
+    ) -> CollectBatch:
+        """Collect every configured vertical; one failure never stops the rest."""
+        batch = CollectBatch()
+        for slug in load_verticals(self.settings):
+            try:
+                batch.summaries.append(
+                    self.collect(slug, limit=limit, sources=sources)
+                )
+            except Exception as exc:  # noqa: BLE001 — isolate the batch
+                logger.exception("collect failed for vertical %s", slug)
+                batch.failed[slug] = str(exc)[:200]
+        return batch
+
+    def run_all(
+        self, limit: int | None = None, use_llm: bool | None = None
+    ) -> PipelineBatch:
+        """Full loop over every configured vertical; one failure stops nothing."""
+        batch = PipelineBatch()
+        for slug in load_verticals(self.settings):
+            try:
+                batch.results.append(self.run(slug, limit=limit, use_llm=use_llm))
+            except Exception as exc:  # noqa: BLE001 — isolate the batch
+                logger.exception("pipeline failed for vertical %s", slug)
+                batch.failed[slug] = str(exc)[:200]
+        return batch
 
     # -- full run -------------------------------------------------------------
     def run(
@@ -378,4 +423,11 @@ class Pipeline:
 
 
 # re-exported for CLI convenience (CollectSummary lives in report.py)
-__all__ = ["CollectSummary", "Pipeline", "PipelineResult", "purge_expired"]
+__all__ = [
+    "CollectBatch",
+    "CollectSummary",
+    "Pipeline",
+    "PipelineBatch",
+    "PipelineResult",
+    "purge_expired",
+]
