@@ -16,3 +16,17 @@ queries:
   intent: comparison
 - text: coinmarketcap api alternatives free
   intent: workaround
+- text: polymarket historical data download csv
+  intent: problem_aware
+- text: best free prediction market api
+  intent: comparison
+- text: real-time market data without subscription
+  intent: workaround
+- text: backtest trading strategies without programming
+  intent: workaround
+- text: predictit data export python script
+  intent: workaround
+- text: free market prediction datasets download
+  intent: workaround
+- text: create prediction model without coding
+  intent: workaround
