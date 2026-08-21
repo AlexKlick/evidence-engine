@@ -33,9 +33,13 @@ app = typer.Typer(
 policy_app = typer.Typer(help="Inspect the source entitlement registry.", no_args_is_help=True)
 deletions_app = typer.Typer(help="Retention + lineage deletion.", no_args_is_help=True)
 outcomes_app = typer.Typer(help="Record first-party experiment outcomes.", no_args_is_help=True)
+experiments_app = typer.Typer(
+    help="Experiment lifecycle: list/start/stop.", no_args_is_help=True
+)
 app.add_typer(policy_app, name="policy")
 app.add_typer(deletions_app, name="deletions")
 app.add_typer(outcomes_app, name="outcomes")
+app.add_typer(experiments_app, name="experiments")
 
 Verbose = Annotated[bool, typer.Option("--verbose", "-v", help="debug logging")]
 Quiet = Annotated[bool, typer.Option("--quiet", "-q", help="warnings only")]
@@ -369,10 +373,15 @@ def outcomes_record(
         typer.Option("--kind", "-k", help=f"one of: {', '.join(OUTCOME_KINDS)}"),
     ],
     value: Annotated[str, typer.Option("--value", help="JSON object")] = "{}",
-    status: Annotated[str | None, typer.Option("--status", help="experiment status")] = None,
+    status: Annotated[
+        str | None,
+        typer.Option("--status", help="draft->running->stopped (validated)"),
+    ] = None,
     decision: Annotated[str | None, typer.Option("--decision", help="advance/kill/...")] = None,
 ) -> None:
     """Record a first-party outcome against an experiment (closes the loop)."""
+    from evidence_engine.experiments.lifecycle import validate_transition
+
     settings = Settings.load()
     engine = make_engine(settings.db_url)
     init_db(engine)
@@ -389,6 +398,12 @@ def outcomes_record(
         if experiment_row is None:
             typer.echo(f"experiment {experiment!r} not found")
             raise typer.Exit(1)
+        if status:
+            try:
+                validate_transition(experiment_row.status, status)
+            except ValueError as exc:
+                typer.echo(f"error: {exc}")
+                raise typer.Exit(1) from exc
         outcome = repo.record_outcome(session, experiment_row, kind, payload)
         if status:
             experiment_row.status = status
@@ -422,6 +437,84 @@ def outcomes_list(
             return
         for row in sorted(rows, key=lambda r: r.observed_at):
             typer.echo(f"{row.id}  {row.observed_at:%Y-%m-%d %H:%M}  {row.kind:<22} {row.value}")
+
+
+@experiments_app.command("list")
+def experiments_list(
+    vertical: Annotated[str | None, typer.Option("--vertical", "-y")] = None,
+    status: Annotated[
+        str | None, typer.Option("--status", "-s", help="draft|running|stopped")
+    ] = None,
+) -> None:
+    """List experiments with their predeclared spend caps."""
+    settings = Settings.load()
+    engine = make_engine(settings.db_url)
+    init_db(engine)
+    with make_session_factory(engine)() as session:
+        rows = repo.list_experiments(session, vertical=vertical, status=status)
+        if not rows:
+            typer.echo("no experiments match")
+            return
+        for row in rows:
+            idea = repo.get_idea(session, row.idea_id)
+            cap = (row.spec or {}).get("maximum_spend")
+            typer.echo(
+                f"{row.id}  {(idea.vertical if idea else '?'):<26} {row.status:<8} "
+                f"cap ${cap}  {row.decision or '—'}  idea:{row.idea_id}"
+            )
+
+
+@experiments_app.command("start")
+def experiments_start(
+    experiment: Annotated[str, typer.Option("--experiment", "-e", help="exp_... id")],
+) -> None:
+    """draft -> running; surfaces the predeclared economics before you spend."""
+    from evidence_engine.experiments.lifecycle import start_experiment
+
+    settings = Settings.load()
+    engine = make_engine(settings.db_url)
+    init_db(engine)
+    with make_session_factory(engine)() as session:
+        try:
+            row = start_experiment(session, experiment)
+            session.commit()
+        except (KeyError, ValueError) as exc:
+            typer.echo(f"error: {exc.args[0]}")
+            raise typer.Exit(1) from exc
+        spec = row.spec or {}
+        guardrail = spec.get("economics_guardrail") or {}
+        typer.echo(f"started {row.id} (idea {row.idea_id})")
+        typer.echo(f"  primary metric: {spec.get('primary_metric')}")
+        typer.echo(
+            f"  spend cap: ${spec.get('maximum_spend')} "
+            f"(price ${guardrail.get('price_monthly')}/mo × margin "
+            f"{guardrail.get('gross_margin')} × "
+            f"{guardrail.get('cac_payback_months')}-mo payback)"
+        )
+        typer.echo(f"  stop condition: {spec.get('stop_condition')}")
+
+
+@experiments_app.command("stop")
+def experiments_stop(
+    experiment: Annotated[str, typer.Option("--experiment", "-e", help="exp_... id")],
+    decision: Annotated[
+        str | None, typer.Option("--decision", help="advance|kill|iterate|...")
+    ] = None,
+) -> None:
+    """running -> stopped, with the operator's decision on record."""
+    from evidence_engine.experiments.lifecycle import stop_experiment
+
+    settings = Settings.load()
+    engine = make_engine(settings.db_url)
+    init_db(engine)
+    with make_session_factory(engine)() as session:
+        try:
+            row = stop_experiment(session, experiment, decision)
+            session.commit()
+        except (KeyError, ValueError) as exc:
+            typer.echo(f"error: {exc.args[0]}")
+            raise typer.Exit(1) from exc
+        typer.echo(f"stopped {row.id} (decision: {row.decision or '—'})")
 
 
 @app.command()

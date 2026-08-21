@@ -57,6 +57,9 @@ uv run ee landing --idea <idea-id>                         # A/B landing draft +
 # operator loop: review the human gate, record outcomes, watch calibration
 uv run ee review --hypothesis <hyp-id> --buyer "..." --channel search --smallest-paid-test "..."
 uv run ee outcomes record --experiment <exp-id> --kind deposit_paid --value '{"amount":50}'
+uv run ee experiments list --status draft                     # predeclared spend caps
+uv run ee experiments start --experiment <exp-id>             # draft→running (prints the cap)
+uv run ee experiments stop --experiment <exp-id> --decision advance
 uv run ee calibration
 uv run ee bootstrap --idea <idea-id> --out ideas/          # scaffold a project folder
 ```

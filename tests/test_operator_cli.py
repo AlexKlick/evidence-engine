@@ -62,6 +62,85 @@ def test_outcomes_record_list_and_calibration(
     assert "ready_to_fit: False" in calibration.output
     assert idea_id in calibration.output
 
+    # legal continuation: running -> stopped via the validated outcomes path
+    finished = runner.invoke(
+        app,
+        [
+            "outcomes", "record", "-e", experiment_id, "-k", "payment_received",
+            "--status", "stopped", "--decision", "advance",
+        ],
+    )
+    assert finished.exit_code == 0, finished.output
+    with session_factory() as session:
+        refreshed = session.get(Experiment, experiment_id)
+        assert refreshed is not None
+        assert refreshed.status == "stopped"
+        assert session.query(repo.Outcome).count() == 2
+
+
+def test_outcomes_record_rejects_illegal_status(
+    fake_adapters, session_factory, settings, monkeypatch
+) -> None:
+    seed(session_factory, settings)
+    monkeypatch.setenv("EE_DB_DSN", settings.db_url)
+
+    with session_factory() as session:
+        experiment = session.query(Experiment).first()
+        assert experiment is not None
+        experiment_id = experiment.id
+
+    result = runner.invoke(
+        app,
+        [
+            "outcomes", "record", "-e", experiment_id, "-k", "deposit_paid",
+            "--status", "stopped",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "draft" in result.output
+    assert "running" in result.output
+    with session_factory() as session:  # nothing recorded on rejection
+        assert session.query(repo.Outcome).count() == 0
+        refreshed = session.get(Experiment, experiment_id)
+        assert refreshed is not None
+        assert refreshed.status == "draft"
+
+
+def test_experiments_cli_list_start_stop(
+    fake_adapters, session_factory, settings, monkeypatch
+) -> None:
+    seed(session_factory, settings)
+    monkeypatch.setenv("EE_DB_DSN", settings.db_url)
+
+    with session_factory() as session:
+        experiment = session.query(Experiment).first()
+        assert experiment is not None
+        experiment_id = experiment.id
+
+    listed = runner.invoke(app, ["experiments", "list", "-y", VERTICAL])
+    assert listed.exit_code == 0, listed.output
+    assert experiment_id in listed.output
+    assert "cap $" in listed.output
+
+    started = runner.invoke(app, ["experiments", "start", "-e", experiment_id])
+    assert started.exit_code == 0, started.output
+    assert "spend cap: $" in started.output
+    assert "stop condition" in started.output
+
+    again = runner.invoke(app, ["experiments", "start", "-e", experiment_id])
+    assert again.exit_code == 1
+    assert "legal transitions" in again.output
+
+    stopped = runner.invoke(
+        app, ["experiments", "stop", "-e", experiment_id, "--decision", "kill"]
+    )
+    assert stopped.exit_code == 0, stopped.output
+
+    filtered = runner.invoke(app, ["experiments", "list", "--status", "stopped"])
+    assert filtered.exit_code == 0, filtered.output
+    assert experiment_id in filtered.output
+    assert "kill" in filtered.output
+
 
 def test_report_regenerates_from_store_without_collection(
     fake_adapters, session_factory, settings, monkeypatch

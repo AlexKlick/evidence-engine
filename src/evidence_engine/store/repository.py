@@ -282,6 +282,20 @@ def ideas_for_hypothesis(session: Session, hypothesis_id: str) -> list[ProductId
     return list(session.execute(stmt).scalars())
 
 
+def list_experiments(
+    session: Session, vertical: str | None = None, status: str | None = None
+) -> list[Experiment]:
+    """Experiments, optionally filtered by idea vertical and lifecycle status."""
+    stmt = select(Experiment).order_by(Experiment.created_at.desc())
+    if vertical:
+        stmt = stmt.join(ProductIdea, Experiment.idea_id == ProductIdea.id).where(
+            ProductIdea.vertical == vertical
+        )
+    if status:
+        stmt = stmt.where(Experiment.status == status)
+    return list(session.execute(stmt).scalars())
+
+
 def latest_snapshot(session: Session, idea_id: str) -> ScoreSnapshot | None:
     stmt = (
         select(ScoreSnapshot)
