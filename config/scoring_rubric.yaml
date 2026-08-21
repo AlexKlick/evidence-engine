@@ -1,0 +1,36 @@
+# Opportunity scoring rubric — starting PRIORS, not empirical constants.
+# Weights sum to 100. Once first-party outcomes exist, ranking/calibration
+# replaces these handcrafted weights (see ranking/calibration.py).
+
+dimensions:
+  pain_severity:       {weight: 15}   # lost time/money/risk; claim urgency; workaround effort
+  commercial_intent:   {weight: 15}   # transactional/comparison/solution query share
+  demand_breadth:      {weight: 10}   # independent evidence, domain & query diversity
+  wtp_proxy:           {weight: 10}   # price signals, paid incumbents/workarounds
+  competitive_gap:     {weight: 10}   # recurring unmet needs vs incumbent coverage
+  buyer_reachability:  {weight: 10}   # identifiable ICP + plausible channel
+  repeatability:       {weight: 10}   # recurring workflow / continuing need
+  compliance_rights:   {weight: 10}   # clean collection/use route for all lineage
+  mvp_speed:           {weight: 5}    # concierge/wedge deliverable quickly
+  unit_economics:      {weight: 5}    # plausible price vs COGS + CAC channel
+
+# Hard gates: failing ANY gate caps the band at "collect_more" regardless of
+# score, and blocks the "paid_validation" band entirely.
+gates:
+  buyer_identified:      "hypothesis.buyer is non-empty"
+  channel_identified:    "hypothesis.channel is non-empty"
+  payment_test_defined:  "idea.smallest_paid_test is non-empty"
+  rights_clear:          "every evidence source in lineage is policy-allowed"
+
+# Triage bands on the weighted total (0-100).
+bands:
+  paid_validation: 80
+  interview: 70
+  collect_more: 55
+  # below collect_more -> archive
+
+# Defaults used when drafting experiments (arithmetic anchors, not bids).
+experiment_defaults:
+  price_monthly: 99
+  gross_margin: 0.85
+  cac_payback_months: 6

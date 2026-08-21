@@ -1,0 +1,146 @@
+# Source entitlement registry — the first-class component of the architecture.
+#
+# HARD RULES
+#   * Default-deny: a source absent from this file can never be collected.
+#   * "Enabled" is separate from rights: an enabled source still needs the
+#     per-purpose right (collect / store / aggregate / inference / ...).
+#   * Rights come from the actual source contract, never from "it is public".
+#   * Every evidence record snapshots rights_profile + policy_version at
+#     fetch time so older data remains interpretable after policy changes.
+#
+# Purposes (see policy/models.py):
+#   COLLECT, STORE_DERIVED, STORE_RAW, AGGREGATE, LOCAL_INFERENCE,
+#   EXTERNAL_INFERENCE, TRAINING, REDISPLAY
+
+policy_version: 1
+
+sources:
+  searxng:
+    adapter: searxng
+    enabled: true
+    rights:
+      collect_enabled: true
+      store_derived: true        # normalized titles/snippets/urls + extracted claims
+      store_raw: false           # no full provider payloads retained
+      aggregate: true            # clustering/scoring across queries
+      local_inference: true      # loopback models (:18000/:6900)
+      external_inference: false  # never send to third-party hosted models
+      model_training: false
+      redisplay_raw_content: false
+      commercial_use: false      # personal venture research; not cleared for resale
+      deletion_propagates: false # no upstream deletion API; retention TTL instead
+    retention_days: 180
+    notes: >-
+      Self-hosted SearXNG (loopback :8018) querying upstream engines indirectly.
+      Posture: personal research use. Upstream engines' terms are not reviewed
+      for commercial redistribution, so commercial_use stays false until that
+      review happens. Raw provider payloads are never retained; only derived
+      normalized records and extracted claims.
+
+  google_ads:
+    adapter: google_ads
+    enabled: false
+    disabled_reason: >-
+      Requires a Google Ads API developer token and approved OAuth customer ID
+      (KeywordPlanIdeaService; keyword-planning calls capped at 1 QPS/customer).
+    rights:
+      collect_enabled: false
+      store_derived: true
+      store_raw: false
+      aggregate: true
+      local_inference: true
+      external_inference: false
+      model_training: false
+      redisplay_raw_content: false
+      commercial_use: false
+      deletion_propagates: true
+    retention_days: 365
+    notes: >-
+      Greenest official Google path once credentials exist: keyword ideas +
+      historical monthly-search, competition and bid-range metrics.
+
+  serp_provider:
+    adapter: serp_provider
+    enabled: false
+    disabled_reason: >-
+      Requires a contracted commercial SERP provider (SerpApi / DataForSEO /
+      Bright Data) with provenance, permitted-use, deletion and indemnity terms
+      reviewed. Provider use does not by itself establish platform authorization.
+    rights:
+      collect_enabled: false
+      store_derived: true
+      store_raw: false
+      aggregate: true
+      local_inference: true
+      external_inference: false
+      model_training: false
+      redisplay_raw_content: false
+      commercial_use: false
+      deletion_propagates: true
+    retention_days: 180
+
+  youtube:
+    adapter: youtube
+    enabled: false
+    disabled_reason: >-
+      YouTube developer policy prohibits scraping and restricts aggregation of
+      API Data; captions.download requires edit permission on the video. Any
+      cross-channel scoring product needs platform/legal review first.
+    rights:
+      collect_enabled: false
+      store_derived: false
+      store_raw: false
+      aggregate: false
+      local_inference: false
+      external_inference: false
+      model_training: false
+      redisplay_raw_content: false
+      commercial_use: false
+      deletion_propagates: true
+    retention_days: 90
+    notes: >-
+      Modes once cleared: creator-owned, partner-licensed, discovery-only.
+      Arbitrary public transcript scraping must never be a dependency.
+
+  reddit:
+    adapter: reddit
+    enabled: false
+    disabled_reason: >-
+      Reddit Developer Terms: commercial/business use and revenue from derived
+      data require a separate agreement; AI/algorithm training on Reddit data
+      prohibited without permission. Adapter stays off until such an agreement
+      exists (free tier = 100 QPM/OAuth client, personal use only).
+    rights:
+      collect_enabled: false
+      store_derived: false
+      store_raw: false
+      aggregate: false
+      local_inference: false
+      external_inference: false
+      model_training: false
+      redisplay_raw_content: false
+      commercial_use: false
+      deletion_propagates: true   # deletion sync mandatory once licensed
+    retention_days: 90
+    notes: >-
+      When licensed: OAuth adapter must honor X-Ratelimit-* headers, remove
+      deleted content/identifiers on sync, and route through local inference.
+
+  web_crawler:
+    adapter: web_crawler
+    enabled: false
+    disabled_reason: >-
+      Per-domain policy required before any crawling: robots.txt is a crawler
+      control, not authorization (RFC 9309); site terms still apply.
+    rights:
+      collect_enabled: false
+      store_derived: true
+      store_raw: false
+      aggregate: true
+      local_inference: true
+      external_inference: false
+      model_training: false
+      redisplay_raw_content: false
+      commercial_use: false
+      deletion_propagates: false
+    retention_days: 120

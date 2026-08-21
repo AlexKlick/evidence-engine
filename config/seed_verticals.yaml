@@ -1,0 +1,39 @@
+# Seed verticals for personal venture discovery. Edit freely — this file is
+# the input surface for `ee collect` / `ee pipeline`.
+#
+# Each vertical: display name, optional persona hints, seed queries, and an
+# optional source override (defaults to config.defaults.sources).
+
+verticals:
+  local-ai-tooling:
+    name: "Local AI tooling"
+    personas: ["hobbyist local-LLM operator", "self-hoster", "solo dev with one GPU"]
+    sources: ["searxng"]
+    queries:
+      - "llama.cpp slow inference fix"
+      - "local llm out of memory gpu"
+      - "manage multiple local llm models"
+      - "self hosted ai alternative to"
+      - "local llm too expensive gpu upgrade"
+
+  solo-dev-saas:
+    name: "Solo developer SaaS operations"
+    personas: ["indie hacker", "solo founder", "freelance developer"]
+    sources: ["searxng"]
+    queries:
+      - "spreadsheet too complicated replace tool"
+      - "how do i automate manual data entry"
+      - "best alternative to for small team pricing"
+      - "tool for recurring client reports"
+      - "wish there was software that"
+
+  prediction-market-research:
+    name: "Prediction market research workflows"
+    personas: ["retail quant", "research hobbyist", "trading analyst"]
+    sources: ["searxng"]
+    queries:
+      - "historical options data free alternative"
+      - "polymarket data analysis spreadsheet"
+      - "backtesting without coding"
+      - "market data api too expensive"
+      - "how to research markets without bloomberg"

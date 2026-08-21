@@ -1,0 +1,45 @@
+# evidence_engine runtime configuration.
+# Endpoints mirror the workstation's canonical model lanes (MODEL_CONTRACT.json
+# in /home/alexk/documents is authoritative; `ee doctor` warns on drift).
+
+database:
+  # Empty dsn -> SQLite at paths.sqlite_path. Set a Postgres DSN to use the
+  # host cluster (127.0.0.1:5432, pgvector available) or any other PG.
+  dsn: ""
+  sqlite_path: "data/evidence_engine.db"
+
+searxng:
+  base_url: "http://127.0.0.1:8018"
+  timeout_seconds: 10
+  max_results_per_query: 10
+  delay_seconds: 0.5
+  language: "en"
+
+llm:
+  # text-main lane (loopback). Local inference is governed by each source's
+  # rights.local_inference flag, not by external_inference.
+  base_url: "http://127.0.0.1:18000/v1"
+  model: "Qwen/Qwen3.8-27B"
+  timeout_seconds: 240
+  max_batch_evidences: 6   # evidences per extraction call
+  max_evidences_per_run: 24
+
+embeddings:
+  base_url: "http://127.0.0.1:6900/v1"
+  model: "Qwen/Qwen3-Embedding-0.6B"
+  dim: 1024
+  timeout_seconds: 60
+
+pipeline:
+  semantic_duplicate_threshold: 0.97
+  cluster_similarity_threshold: 0.72
+  use_llm_extraction: true
+
+paths:
+  reports_dir: "reports"
+  ideas_dir: "ideas"
+
+defaults:
+  # Sources attempted when a vertical does not override `sources`.
+  sources: ["searxng"]
+  max_results_per_query: 10

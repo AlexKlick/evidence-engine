@@ -1,0 +1,40 @@
+[project]
+name = "evidence-engine"
+version = "0.1.0"
+description = "Rights-aware evidence-to-revenue engine: mine search demand, synthesize product ideas, validate willingness to pay."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "sqlalchemy>=2.0",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+pg = ["psycopg[binary]>=3.1", "pgvector>=0.3"]
+cluster = ["numpy>=1.26", "scikit-learn>=1.4", "umap-learn>=0.5", "hdbscan>=0.8"]
+dev = ["pytest>=8", "ruff>=0.5", "respx>=0.21"]
+
+[project.scripts]
+evidence-engine = "evidence_engine.cli:main"
+ee = "evidence_engine.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/evidence_engine"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
