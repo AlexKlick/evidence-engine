@@ -670,6 +670,11 @@ def landing(
         landing_content,
         render_landing_markdown,
     )
+    from evidence_engine.experiments.landing_html import render_landing_html
+    from evidence_engine.experiments.redisplay_guard import (
+        VerbatimRedisplayError,
+        assert_no_verbatim_redisplay,
+    )
 
     settings = Settings.load()
     engine = make_engine(settings.db_url)
@@ -684,11 +689,23 @@ def landing(
             idea, hypothesis, load_rubric(settings).get("experiment_defaults") or {}
         )
         content = landing_content(idea, hypothesis, spec)
+        markdown = render_landing_markdown(idea, hypothesis, spec)
+        # publication gate (ADR-0005): no scraped text may reach any artifact,
+        # in either the markdown or the html path
+        evidence_rows = repo.evidence_by_ids(session, hypothesis.evidence_for or [])
+        texts = {
+            "markdown": markdown,
+            "html_a": render_landing_html(content, "a"),
+            "html_b": render_landing_html(content, "b"),
+        }
+        try:
+            assert_no_verbatim_redisplay(texts, evidence_rows)
+        except VerbatimRedisplayError as exc:
+            typer.echo(f"error: {exc}")
+            raise typer.Exit(1) from exc
     target = out or (settings.ideas_dir / idea.id)
     target.mkdir(parents=True, exist_ok=True)
-    (target / "landing.md").write_text(
-        render_landing_markdown(idea, hypothesis, spec), encoding="utf-8"
-    )
+    (target / "landing.md").write_text(markdown, encoding="utf-8")
     (target / "experiment-plan.md").write_text(
         "# Experiment plan (predeclared metrics — no retrospective selection)\n\n```yaml\n"
         + yaml.safe_dump(spec, sort_keys=False)

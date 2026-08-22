@@ -94,6 +94,80 @@ def test_landing_html_escapes_evidence_derived_copy(
     assert "<operator>" not in page_a + page_b  # no raw markup injection
 
 
+def test_headline_synthesized_from_current_hypothesis_not_stored_pitch(
+    fake_adapters, session_factory, settings
+) -> None:
+    """The stored idea.pitch is frozen at pipeline time and was the verbatim
+    leak carrier — headline_a must be re-synthesized from the CURRENT
+    hypothesis fields via the idea's form template."""
+    from types import SimpleNamespace
+
+    from evidence_engine.ideas.forms import FORMS as ALL_FORMS
+    from evidence_engine.ideas.forms import _outcome
+
+    content_for(session_factory, settings)  # seed pipeline state
+    junk_pitch = (
+        "Free, no sign-up — scraped competitor marketing pasted wholesale "
+        "into the stored pitch field"
+    )
+    with session_factory() as session:
+        idea = sorted(
+            repo.ideas_for_vertical(session, VERTICAL),
+            key=lambda idea: idea.score_total,
+            reverse=True,
+        )[0]
+        hypothesis = repo.get_hypothesis(session, idea.hypothesis_id)
+        idea.pitch = junk_pitch
+        hypothesis.job = "pull options chains into a sheet"
+        hypothesis.pain = "manual exports eat the morning"
+        session.flush()
+        spec = draft_experiment_spec(
+            idea, hypothesis, load_rubric(settings).get("experiment_defaults") or {}
+        )
+        content = landing_content(idea, hypothesis, spec)
+        form, stored_pitch = idea.form, idea.pitch
+        job, pain = hypothesis.job, hypothesis.pain
+
+    assert stored_pitch == junk_pitch  # fixture sanity: junk really is stored
+    assert content.pitch != stored_pitch, "landing must never echo idea.pitch"
+    assert content.headline_a == content.pitch
+    assert "pull options chains into a sheet" in content.pitch
+    assert "Free, no sign-up" not in content.pitch
+    # synthesized via the idea's own FormSpec template + _outcome
+    spec_for_form = next(s for s in ALL_FORMS if s.form == form)
+    expected = spec_for_form.pitch_template.format(
+        outcome=_outcome(SimpleNamespace(job=job, pain=pain)), incumbent="A->B"
+    )
+    assert content.pitch == expected
+
+
+def test_unknown_form_falls_back_to_neutral_synthesis(
+    fake_adapters, session_factory, settings
+) -> None:
+    content_for(session_factory, settings)
+    with session_factory() as session:
+        idea = sorted(
+            repo.ideas_for_vertical(session, VERTICAL),
+            key=lambda idea: idea.score_total,
+            reverse=True,
+        )[0]
+        hypothesis = repo.get_hypothesis(session, idea.hypothesis_id)
+        idea.form = "nonexistent_form"
+        idea.pitch = "stored pitch that must never surface"
+        hypothesis.job = "normalize receipts weekly"
+        hypothesis.pain = "hand-keying them in"
+        session.flush()
+        spec = draft_experiment_spec(
+            idea, hypothesis, load_rubric(settings).get("experiment_defaults") or {}
+        )
+        content = landing_content(idea, hypothesis, spec)
+        pitch = content.pitch
+
+    assert pitch != "stored pitch that must never surface"
+    assert "normalize receipts weekly" in pitch
+    assert "hand-keying them in" in pitch
+
+
 def test_shared_content_model_consistent(
     fake_adapters, session_factory, settings, tmp_path
 ) -> None:
