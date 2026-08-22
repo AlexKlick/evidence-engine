@@ -65,15 +65,34 @@ One user pays for the core workflow outcome within the experiment window.
 
 def _pricing_md(idea, spec) -> str:
     guard = spec["economics_guardrail"]
-    return f"""# Pricing
-
-- Mechanism: {idea.pricing_mechanism}
-- Anchor price: ${guard['price_monthly']}/month, {guard['gross_margin']:.0%} margin
-- CAC ceiling ({guard['cac_payback_months']}-month payback): **${guard['cac_ceiling']}**
-- Smallest paid test: {idea.smallest_paid_test}
-
-> Anchors are arithmetic examples from the scoring rubric, not bids.
-"""
+    price = guard.get("price_monthly")
+    ceiling = guard.get("cac_ceiling")
+    anchor = (
+        f"${price}/month, {guard['gross_margin']:.0%} margin"
+        if price is not None
+        else "not set — no price evidence collected yet"
+    )
+    ceiling_line = (
+        f"**${ceiling}**"
+        if ceiling is not None
+        else "**not set** (start gates on `ee experiments start --price`)"
+    )
+    lines = [
+        "# Pricing",
+        "",
+        f"- Mechanism: {idea.pricing_mechanism}",
+        f"- Anchor price: {anchor}",
+        f"- CAC ceiling ({guard['cac_payback_months']}-month payback): {ceiling_line}",
+        f"- Smallest paid test: {idea.smallest_paid_test}",
+    ]
+    if guard.get("price_provenance"):
+        lines.append(f"- Price provenance: {guard['price_provenance']}")
+    lines += [
+        "",
+        "> Anchor price is evidence-derived (median of collected price signals)",
+        "> or operator-reviewed — never a silent default, and not a bid.",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _acquisition_md(hypothesis) -> str:

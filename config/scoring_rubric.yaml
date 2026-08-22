@@ -30,7 +30,10 @@ bands:
   # below collect_more -> archive
 
 # Defaults used when drafting experiments (arithmetic anchors, not bids).
+# Price is deliberately NOT defaulted: specs carry the evidence-derived price
+# band median (nlp/pricing.py) or None until an operator passes --price at
+# `ee experiments start` — the old $99 default set real spend caps from an
+# illustrative example in the design doc, never from evidence.
 experiment_defaults:
-  price_monthly: 99
   gross_margin: 0.85
   cac_payback_months: 6

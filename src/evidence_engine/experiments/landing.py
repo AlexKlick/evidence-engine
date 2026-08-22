@@ -13,8 +13,8 @@ class LandingContent:
     buyer: str
     job: str
     pain: str
-    price_monthly: float
-    cac_ceiling: float
+    price_monthly: float | None  # evidence-derived; None until price signals exist
+    cac_ceiling: float | None
     payback_months: int
     primary_metric: str
     stop_condition: str

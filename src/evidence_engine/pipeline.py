@@ -27,6 +27,7 @@ from evidence_engine.nlp.embeddings import EmbeddingClient, EmbeddingUnavailable
 from evidence_engine.nlp.intent import classify
 from evidence_engine.nlp.llm import LLMClient
 from evidence_engine.nlp.pain_claims import extract as extract_claims
+from evidence_engine.nlp.pricing import band_from_claims
 from evidence_engine.nlp.query_expansion import effective_queries
 from evidence_engine.nlp.segment import split_sentences
 from evidence_engine.policy import PolicyRegistry, Purpose
@@ -385,6 +386,7 @@ class Pipeline:
             )
             hypothesis_count += 1
             features = aggregate_features(member_rows, member_claims)
+            price_band = band_from_claims(member_claims)
             candidates = []
             for form in generate_forms(draft):
                 result = score_idea(features, draft, form["form"], self.rubric)
@@ -407,7 +409,10 @@ class Pipeline:
                 )
                 repo.save_snapshot(session, idea, features, result.total)
                 spec = draft_experiment_spec(
-                    idea, hypothesis, self.rubric.get("experiment_defaults") or {}
+                    idea,
+                    hypothesis,
+                    self.rubric.get("experiment_defaults") or {},
+                    price_band=price_band,
                 )
                 repo.save_experiment(session, idea, spec)
                 idea_count += 1

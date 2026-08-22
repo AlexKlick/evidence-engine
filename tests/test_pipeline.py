@@ -72,7 +72,39 @@ def test_pipeline_persists_snapshots_and_experiments(
         experiments = session.query(Experiment).all()
         assert snapshots and experiments
         assert snapshots[0].features  # no-hindsight-leakage record
-        assert experiments[0].spec["economics_guardrail"]["cac_ceiling"] > 0
+        # heuristic run carries no price signals: NO price, NO cap — the old
+        # $99 -> $504.90 default is gone (start gates on --price instead)
+        guardrail = experiments[0].spec["economics_guardrail"]
+        assert guardrail["price_monthly"] is None
+        assert guardrail["cac_ceiling"] is None
+        assert guardrail["price_provenance"] is None
+        assert experiments[0].spec["maximum_spend"] is None
+
+
+def test_pipeline_derives_price_from_claim_signals(
+    fake_adapters, session_factory, settings
+) -> None:
+    """Claims' price signals flow into the spec as a derived median + band."""
+    from conftest import PricedFakeLLM
+    from evidence_engine.store.models import Experiment
+
+    Pipeline(
+        settings=settings,
+        session_factory=session_factory,
+        embedder=FakeEmbedder(),
+        llm=PricedFakeLLM(),
+    ).run("local-ai-tooling", limit=3, use_llm=True)
+
+    with session_factory() as session:
+        experiments = session.query(Experiment).all()
+        assert experiments
+        for experiment in experiments:
+            guardrail = experiment.spec["economics_guardrail"]
+            # every claim: $9.99/mo or $99/yr -> band [8.25, 9.99] -> median 9.12 -> 9
+            assert guardrail["price_monthly"] == 9
+            assert guardrail["cac_ceiling"] == 45.9  # 9 * 0.85 * 6
+            assert experiment.spec["maximum_spend"] == 45.9
+            assert guardrail["price_provenance"].startswith("derived:median(n=")
 
 
 def test_collect_denied_source_records_reason(session_factory, settings, monkeypatch) -> None:

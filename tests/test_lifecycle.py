@@ -16,13 +16,25 @@ from evidence_engine.store.models import Experiment
 VERTICAL = "local-ai-tooling"
 
 
-def seed_experiment(session_factory, settings) -> str:
+def seed_experiment(session_factory, settings, with_price: bool = True) -> str:
+    """Heuristic fake run -> no price evidence; stamp one unless asked not to."""
     Pipeline(
         settings=settings, session_factory=session_factory, embedder=FakeEmbedder()
     ).run(VERTICAL, limit=3, use_llm=False)
     with session_factory() as session:
         experiment = session.query(Experiment).first()
         assert experiment is not None
+        if with_price:
+            spec = dict(experiment.spec or {})
+            guardrail = dict(spec.get("economics_guardrail") or {})
+            guardrail.update(
+                price_monthly=15, cac_ceiling=76.5,
+                price_provenance="derived:median(n=1,p25=15,p75=15)",
+            )
+            spec["economics_guardrail"] = guardrail
+            spec["maximum_spend"] = 76.5
+            experiment.spec = spec  # reassign: JSON column change tracking
+            session.commit()
         return experiment.id
 
 
@@ -74,6 +86,22 @@ def test_stop_of_draft_raises(fake_adapters, session_factory, settings) -> None:
         pytest.raises(ValueError, match="legal transitions: running"),
     ):
         stop_experiment(session, experiment_id)
+
+
+def test_start_refuses_when_spec_has_no_price(
+    fake_adapters, session_factory, settings
+) -> None:
+    """Hard gate: no price on the guardrail -> no spend, name the fix."""
+    experiment_id = seed_experiment(session_factory, settings, with_price=False)
+    with (
+        session_factory() as session,
+        pytest.raises(ValueError, match="--price"),
+    ):
+        start_experiment(session, experiment_id)
+    with session_factory() as session:  # nothing transitioned on refusal
+        refreshed = session.get(Experiment, experiment_id)
+        assert refreshed is not None
+        assert refreshed.status == "draft"
 
 
 def test_lifecycle_unknown_experiment_raises(session_factory) -> None:

@@ -77,6 +77,18 @@ class FakeLLM:
         }
 
 
+class PricedFakeLLM(FakeLLM):
+    """FakeLLM whose claims carry a real-world price signal (pricing lane)."""
+
+    PRICE_SIGNAL = "$9.99 per month or $99 per year for Microsoft 365"
+
+    def chat_json(self, system: str, user: str, **kwargs):
+        payload = super().chat_json(system, user, **kwargs)
+        for claim in payload["claims"]:
+            claim["price_or_budget_signal"] = self.PRICE_SIGNAL
+        return payload
+
+
 class FakeAdapterModule:  # helper namespace for pipeline tests
     pass
 
