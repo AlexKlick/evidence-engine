@@ -1,0 +1,22 @@
+origin: llm-expansion (MiniMax-M3) — prune freely; collected on next run
+queries:
+- text: cheap invoicing tool for freelancers
+  intent: transactional
+- text: notion vs airtable for solo saas
+  intent: comparison
+- text: automate weekly client report without zapier
+  intent: workaround
+- text: tired of excel for tracking subscriptions
+  intent: problem_aware
+- text: switching from spreadsheets to crm
+  intent: switching
+- text: simple dashboard for one person business
+  intent: transactional
+- text: form to spreadsheet automation no code
+  intent: workaround
+- text: looking for software with usage based billing
+  intent: feature_request
+- text: best database app for non technical founder
+  intent: comparison
+- text: recurring invoice software under ten dollars
+  intent: transactional

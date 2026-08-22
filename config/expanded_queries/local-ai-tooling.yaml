@@ -1,0 +1,22 @@
+origin: llm-expansion (MiniMax-M3) — prune freely; collected on next run
+queries:
+- text: gguf vs ggml format difference
+  intent: comparison
+- text: quantize 70b model for 24gb gpu
+  intent: workaround
+- text: ollama vs lm studio performance
+  intent: comparison
+- text: context window too small local model
+  intent: problem_aware
+- text: run llm on raspberry pi 5
+  intent: problem_aware
+- text: offload layers to cpu llama.cpp
+  intent: workaround
+- text: switching from openai api local
+  intent: switching
+- text: buy used 3090 for local ai
+  intent: transactional
+- text: speculative decoding speed up local
+  intent: feature_request
+- text: uncensored local llm model recommendations
+  intent: transactional

@@ -1,4 +1,4 @@
-origin: llm-expansion (MiniMax-M2) — prune freely; collected on next run
+origin: llm-expansion (MiniMax-M3) — prune freely; collected on next run
 queries:
 - text: polymarket vs betfair fees comparison
   intent: comparison
@@ -30,3 +30,23 @@ queries:
   intent: workaround
 - text: create prediction model without coding
   intent: workaround
+- text: intraday prediction market odds scraper
+  intent: problem_aware
+- text: kalshi vs polymarket historical data export
+  intent: comparison
+- text: spreadsheet add-on for betting market odds
+  intent: feature_request
+- text: no-code prediction market strategy tester
+  intent: workaround
+- text: alternative to electionbettingodds.com data
+  intent: switching
+- text: cheap csv api for prediction exchanges
+  intent: problem_aware
+- text: predictit data download bulk
+  intent: workaround
+- text: best tool to track kalshi market movement
+  intent: transactional
+- text: google sheets pull odds from metaculus
+  intent: workaround
+- text: is there a bloomberg terminal for prediction markets
+  intent: comparison
