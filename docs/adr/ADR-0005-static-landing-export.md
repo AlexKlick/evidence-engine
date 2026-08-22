@@ -51,9 +51,11 @@ price test, `exp_446adf139ed8`) on the workspace public hub:
   `landing-a.html`, `landing-b.html`, `events.json` + `/healthz`; GET/HEAD
   only; 404 for anything else including traversal) on loopback `:18087`,
   run by the user unit `evidence-landing.service` owned by this repo.
-- Route `/apps/options-chain/` on `alexklick.ngrok.app` via the hub
-  (opencode-stack `server-surfaces.json` entry `evidence-landing`, mirroring
-  the fractal-page open-static-public allowance).
+- Route `/apps/options-chain/` on the workspace public hub, originally
+  `alexklick.ngrok.app` and — since the 2026-08-22 funnel migration retired
+  the ngrok origin — `https://pop-os.tail2b3f82.ts.net:8443` (opencode-stack
+  `server-surfaces.json` entry `evidence-landing`, open-static-public
+  allowance with a tailscale-funnel `public_scope`).
 - The ADR's "no server inside the engine" stance stands: the server is a
   3-file allowlist in `scripts/`, not a serving framework — it cannot serve
   anything that is not one of the exported artifacts.
