@@ -308,3 +308,36 @@ def test_landing_uses_persisted_experiment_spec(
     assert "$12.0/month" in text  # persisted float renders 12.0
     assert "TBD" not in text
     assert experiment_id  # linked experiment existed
+
+
+def test_landing_ignores_unprovenanced_stale_spec(
+    fake_adapters, session_factory, settings, monkeypatch, tmp_path
+) -> None:
+    """A legacy spec (the illustrative $99 era: price with NO provenance) must
+    not be rendered just because an experiment row exists — the landing falls
+    back to drafting from current evidence instead."""
+    from typer.testing import CliRunner
+
+    from evidence_engine.cli import app
+
+    seed(session_factory, settings, use_llm=True)
+    with session_factory() as session:
+        idea = sorted(
+            repo.ideas_for_vertical(session, VERTICAL),
+            key=lambda i: i.score_total,
+            reverse=True,
+        )[0]
+        experiment = repo.latest_experiment_for_idea(session, idea.id)
+        spec = dict(experiment.spec or {})
+        guardrail = dict(spec.get("economics_guardrail") or {})
+        guardrail.update(price_monthly=99.0, price_provenance=None, cac_ceiling=504.9)
+        spec["economics_guardrail"] = guardrail
+        spec["maximum_spend"] = 504.9
+        experiment.spec = spec
+        session.commit()
+    monkeypatch.setenv("EE_DB_DSN", settings.db_url)
+    monkeypatch.setenv("EE_IDEAS_DIR", str(tmp_path))
+    result = CliRunner().invoke(app, ["landing", "-i", idea.id, "--html"])
+    assert result.exit_code == 0, result.output
+    text = (tmp_path / idea.id / "landing.md").read_text(encoding="utf-8")
+    assert "$99" not in text  # the stale ungrounded price never renders

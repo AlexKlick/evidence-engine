@@ -735,7 +735,14 @@ def landing(
         # --price` commits operator economics there, and the landing must show
         # the RUNNING experiment's numbers, not a fresh draft from claims
         experiment = repo.latest_experiment_for_idea(session, idea.id)
-        if experiment is not None and experiment.spec:
+        persisted_guardrail = (
+            (experiment.spec or {}).get("economics_guardrail") or {}
+            if experiment is not None
+            else {}
+        )
+        # authoritative only when the price is grounded (derived band) or
+        # operator-reviewed — a legacy unprovenanced $99 must never render
+        if persisted_guardrail.get("price_provenance"):
             spec = dict(experiment.spec)
         else:
             evidence_ids_for_band = (
