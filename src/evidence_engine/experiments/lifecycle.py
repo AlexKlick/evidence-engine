@@ -44,10 +44,22 @@ def validate_transition(current: str, target: str) -> None:
 
 
 def start_experiment(session: Session, experiment_id: str) -> Experiment:
-    """draft -> running; caller owns the commit."""
+    """draft -> running; caller owns the commit.
+
+    Hard gate: an experiment whose economics_guardrail has no price_monthly
+    cannot start — that is the anti-default guarantee (no invented $99). The
+    fix is evidence (price signals on claims) or the operator override
+    (`ee experiments start --price`).
+    """
     experiment = session.get(Experiment, experiment_id)
     if experiment is None:
         raise KeyError(f"experiment {experiment_id!r} not found")
+    guardrail = (experiment.spec or {}).get("economics_guardrail") or {}
+    if guardrail.get("price_monthly") is None:
+        raise ValueError(
+            f"cannot start experiment {experiment_id!r}: no price on the "
+            "economics_guardrail — pass --price or collect price evidence"
+        )
     validate_transition(experiment.status, "running")
     experiment.status = "running"
     session.flush()

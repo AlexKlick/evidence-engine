@@ -15,6 +15,7 @@ from evidence_engine.experiments.experiment import draft_experiment_spec
 from evidence_engine.experiments.outcomes import OUTCOME_KINDS
 from evidence_engine.ideas.review import apply_review
 from evidence_engine.logging_setup import configure_logging
+from evidence_engine.nlp.pricing import band_from_claims
 from evidence_engine.pipeline import Pipeline
 from evidence_engine.policy import PolicyRegistry
 from evidence_engine.ranking.calibration import assemble_calibration_dataset
@@ -466,23 +467,60 @@ def experiments_list(
         for row in rows:
             idea = repo.get_idea(session, row.idea_id)
             cap = (row.spec or {}).get("maximum_spend")
+            cap_text = f"${cap}" if cap is not None else "unset (no price evidence)"
             typer.echo(
                 f"{row.id}  {(idea.vertical if idea else '?'):<26} {row.status:<8} "
-                f"cap ${cap}  {row.decision or '—'}  idea:{row.idea_id}"
+                f"cap {cap_text}  {row.decision or '—'}  idea:{row.idea_id}"
             )
 
 
 @experiments_app.command("start")
 def experiments_start(
     experiment: Annotated[str, typer.Option("--experiment", "-e", help="exp_... id")],
+    price: Annotated[
+        float | None,
+        typer.Option(
+            "--price",
+            help="operator-reviewed monthly price (overrides the derived band)",
+        ),
+    ] = None,
 ) -> None:
     """draft -> running; surfaces the predeclared economics before you spend."""
+    from datetime import UTC, datetime
+
+    from evidence_engine.experiments.experiment import cac_ceiling
     from evidence_engine.experiments.lifecycle import start_experiment
 
     settings = Settings.load()
     engine = make_engine(settings.db_url)
     init_db(engine)
+    defaults = load_rubric(settings).get("experiment_defaults") or {}
     with make_session_factory(engine)() as session:
+        row = session.get(repo.Experiment, experiment)
+        if row is None:
+            typer.echo(f"error: experiment {experiment!r} not found")
+            raise typer.Exit(1)
+        if price is not None:
+            spec = dict(row.spec or {})
+            guardrail = dict(spec.get("economics_guardrail") or {})
+            margin = float(
+                guardrail.get("gross_margin") or defaults.get("gross_margin", 0.85)
+            )
+            months = int(
+                guardrail.get("cac_payback_months")
+                or defaults.get("cac_payback_months", 6)
+            )
+            cap = cac_ceiling(price, margin, months)
+            guardrail.update(
+                price_monthly=price,
+                price_provenance=(
+                    f"reviewed:operator {datetime.now(UTC):%Y-%m-%d}"
+                ),
+                cac_ceiling=cap,
+            )
+            spec["economics_guardrail"] = guardrail
+            spec["maximum_spend"] = cap
+            row.spec = spec  # reassign: JSON columns need the new object
         try:
             row = start_experiment(session, experiment)
             session.commit()
@@ -499,6 +537,7 @@ def experiments_start(
             f"{guardrail.get('gross_margin')} × "
             f"{guardrail.get('cac_payback_months')}-mo payback)"
         )
+        typer.echo(f"  price: {guardrail.get('price_provenance') or 'unknown'}")
         typer.echo(f"  stop condition: {spec.get('stop_condition')}")
 
 
@@ -595,12 +634,16 @@ def bootstrap(
             typer.echo(f"idea {idea_id!r} not found")
             raise typer.Exit(1)
         hypothesis = repo.get_hypothesis(session, idea.hypothesis_id)
-        evidence = repo.evidence_by_ids(
-            session, list(hypothesis.evidence_for or []) if hypothesis else []
-        )
+        evidence_ids = list(hypothesis.evidence_for or []) if hypothesis else []
+        evidence = repo.evidence_by_ids(session, evidence_ids)
         rubric = load_rubric(settings)
         spec = draft_experiment_spec(
-            idea, hypothesis, rubric.get("experiment_defaults") or {}
+            idea,
+            hypothesis,
+            rubric.get("experiment_defaults") or {},
+            price_band=band_from_claims(
+                repo.claims_for_evidence(session, evidence_ids)
+            ),
         )
         out_dir = out or (settings.ideas_dir / idea.id)
         root = scaffold_idea_project(out_dir, idea, hypothesis, evidence, spec)
@@ -685,8 +728,14 @@ def landing(
             typer.echo(f"idea {idea_id!r} not found")
             raise typer.Exit(1)
         hypothesis = repo.get_hypothesis(session, idea.hypothesis_id)
+        evidence_ids = list(hypothesis.evidence_for or []) if hypothesis else []
         spec = draft_experiment_spec(
-            idea, hypothesis, load_rubric(settings).get("experiment_defaults") or {}
+            idea,
+            hypothesis,
+            load_rubric(settings).get("experiment_defaults") or {},
+            price_band=band_from_claims(
+                repo.claims_for_evidence(session, evidence_ids)
+            ),
         )
         content = landing_content(idea, hypothesis, spec)
         markdown = render_landing_markdown(idea, hypothesis, spec)

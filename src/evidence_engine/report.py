@@ -24,6 +24,7 @@ from evidence_engine.ideas.competitors import (
 )
 from evidence_engine.ideas.review import review_queue
 from evidence_engine.logging_setup import get_logger
+from evidence_engine.nlp.pricing import band_from_claims
 from evidence_engine.policy import PolicyRegistry
 from evidence_engine.store import repository as repo
 from evidence_engine.store.models import EvidenceEvent, Query, SourceRun
@@ -203,15 +204,41 @@ def render_vertical_report(
         if hypothesis is None:
             continue
         defaults = rubric.get("experiment_defaults") or {}
-        spec = draft_experiment_spec(idea, hypothesis, defaults)
+        guardrail = dict(
+            draft_experiment_spec(
+                idea,
+                hypothesis,
+                defaults,
+                price_band=band_from_claims(
+                    repo.claims_for_evidence(
+                        session, list(hypothesis.evidence_for or [])
+                    )
+                ),
+            )["economics_guardrail"]
+        )
+        ceiling = guardrail["cac_ceiling"]
+        ceiling_line = (
+            f"- CAC ceiling: ${ceiling}"
+            f" ({defaults.get('cac_payback_months', 6)}-month payback)"
+            if ceiling is not None
+            else (
+                "- CAC ceiling: not set — no price evidence "
+                "(collect price signals or start with --price)"
+            )
+        )
+        price_line = (
+            f"- Price: ${guardrail['price_monthly']}/mo ({guardrail['price_provenance']})"
+            if guardrail["price_provenance"]
+            else "- Price: not derived from evidence yet"
+        )
         lines += [
             "",
             f"## Next up: `{idea.id}` — {idea.pitch}",
             "",
             f"- Smallest paid test: {idea.smallest_paid_test}",
             f"- Pricing mechanism: {idea.pricing_mechanism}",
-            f"- CAC ceiling: ${spec['economics_guardrail']['cac_ceiling']}"
-            f" ({defaults.get('cac_payback_months', 6)}-month payback)",
+            price_line,
+            ceiling_line,
             f"- Dimensions: {idea.score_dimensions}",
         ]
 

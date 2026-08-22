@@ -120,12 +120,24 @@ def test_experiments_cli_list_start_stop(
     listed = runner.invoke(app, ["experiments", "list", "-y", VERTICAL])
     assert listed.exit_code == 0, listed.output
     assert experiment_id in listed.output
-    assert "cap $" in listed.output
+    assert "cap" in listed.output  # no price evidence yet -> cap unset, not $504.90
 
-    started = runner.invoke(app, ["experiments", "start", "-e", experiment_id])
+    # heuristic seed carries no price signals -> operator sets the price
+    started = runner.invoke(
+        app, ["experiments", "start", "-e", experiment_id, "--price", "12"]
+    )
     assert started.exit_code == 0, started.output
-    assert "spend cap: $" in started.output
+    assert "spend cap: $61.2" in started.output  # 12 * 0.85 * 6
+    assert "reviewed:operator" in started.output
     assert "stop condition" in started.output
+
+    with session_factory() as session:  # stamp persisted, not just echoed
+        refreshed = session.get(Experiment, experiment_id)
+        assert refreshed is not None
+        guardrail = refreshed.spec["economics_guardrail"]
+        assert guardrail["price_monthly"] == 12
+        assert guardrail["cac_ceiling"] == 61.2
+        assert guardrail["price_provenance"].startswith("reviewed:operator")
 
     again = runner.invoke(app, ["experiments", "start", "-e", experiment_id])
     assert again.exit_code == 1
@@ -140,6 +152,55 @@ def test_experiments_cli_list_start_stop(
     assert filtered.exit_code == 0, filtered.output
     assert experiment_id in filtered.output
     assert "kill" in filtered.output
+
+
+def test_experiments_start_without_price_is_gated(
+    fake_adapters, session_factory, settings, monkeypatch
+) -> None:
+    """No derived price + no --price -> refused, with the fix in the message."""
+    seed(session_factory, settings)
+    monkeypatch.setenv("EE_DB_DSN", settings.db_url)
+
+    with session_factory() as session:
+        experiment = session.query(Experiment).first()
+        assert experiment is not None
+        experiment_id = experiment.id
+
+    result = runner.invoke(app, ["experiments", "start", "-e", experiment_id])
+    assert result.exit_code == 1
+    assert "--price" in result.output
+    assert "price evidence" in result.output
+    with session_factory() as session:
+        refreshed = session.get(Experiment, experiment_id)
+        assert refreshed is not None
+        assert refreshed.status == "draft"
+
+
+def test_experiments_start_derived_price_needs_no_flag(
+    fake_adapters, session_factory, settings, monkeypatch
+) -> None:
+    """Claims with price signals -> derived median starts without --price."""
+    from conftest import PricedFakeLLM
+
+    Pipeline(
+        settings=settings,
+        session_factory=session_factory,
+        embedder=FakeEmbedder(),
+        llm=PricedFakeLLM(),
+    ).run(VERTICAL, limit=3, use_llm=True)
+    monkeypatch.setenv("EE_DB_DSN", settings.db_url)
+
+    with session_factory() as session:
+        experiment = session.query(Experiment).first()
+        assert experiment is not None
+        assert experiment.spec["economics_guardrail"]["price_monthly"] == 9
+        experiment_id = experiment.id
+
+    result = runner.invoke(app, ["experiments", "start", "-e", experiment_id])
+    assert result.exit_code == 0, result.output
+    assert "spend cap: $45.9" in result.output  # 9 * 0.85 * 6
+    assert "derived:median(n=" in result.output
+    assert "price:" in result.output
 
 
 def test_report_regenerates_from_store_without_collection(
