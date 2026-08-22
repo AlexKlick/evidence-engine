@@ -3,7 +3,7 @@
 # Local-only (NO hosted CI — hard rule). Suggested crontab entry:
 #   17 3 * * * /home/alexk/documents/evidence_engine/scripts/nightly.sh
 #
-# LLM extraction: EE_NIGHTLY_USE_LLM=1 opts into MiniMax-M2 extraction
+# LLM extraction: EE_NIGHTLY_USE_LLM=1 opts into MiniMax-M3 extraction
 # (subscription — effectively unmetered, bounded only by the ~5h rolling
 # window which a 03:17 run never hits). The key is sourced from its existing
 # home (~/.claude/.env) only when the flag is set; never copied anywhere.

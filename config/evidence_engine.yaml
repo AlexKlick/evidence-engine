@@ -16,7 +16,7 @@ searxng:
   language: "en"
 
 llm:
-  # Provider: "local" (loopback text-main) or "minimax" (hosted MiniMax M2).
+  # Provider: "local" (loopback text-main) or "minimax" (hosted MiniMax M3).
   # Hosted inference over collected evidence requires the EXTERNAL_INFERENCE
   # right on every involved source — policy v2 authorizes it for searxng
   # derived data (see config/source_policies.yaml).
@@ -31,7 +31,7 @@ llm:
     # Coding-Plan-covered path is the Anthropic-compatible endpoint; the
     # OpenAI-style /v1/chat/completions returns 1008 insufficient balance.
     base_url: "https://api.minimax.io/anthropic/v1"
-    model: "MiniMax-M2"
+    model: "MiniMax-M3"
     api_key_env: "ANTHROPIC_AUTH_TOKEN_MINIMAX2"
 
 embeddings:

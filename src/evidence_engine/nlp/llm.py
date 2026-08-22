@@ -1,4 +1,4 @@
-"""LLM client: loopback text-main lane (:18000) or hosted MiniMax (M2).
+"""LLM client: loopback text-main lane (:18000) or hosted MiniMax (M3).
 
 Provider is config/env selected (`llm.provider` / EE_LLM_PROVIDER). Which
 rights purpose applies follows the provider:
@@ -106,8 +106,8 @@ class LLMClient:
         base = self._settings.llm_base_url.rstrip("/")
         try:
             if self.is_external:
-                # Anthropic Messages shape; MiniMax-M2 emits thinking blocks —
-                # only text blocks carry the answer.
+                # Anthropic Messages shape. MiniMax may emit thinking blocks
+                # (M2 always, M3 sometimes) — only text blocks carry the answer.
                 response = httpx.post(
                     f"{base}/messages",
                     headers=self._headers(),

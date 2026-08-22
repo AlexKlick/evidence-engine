@@ -1,4 +1,4 @@
-"""MiniMax (M2) external provider: config resolution, key handling, rights gating.
+"""MiniMax (M3) external provider: config resolution, key handling, rights gating.
 
 External hosted inference is a RIGHTS decision, not a convenience: the
 pipeline checks EXTERNAL_INFERENCE per source and falls back to the heuristic
@@ -22,7 +22,7 @@ VERTICAL = "local-ai-tooling"
 
 
 class FakeExternalLLM(FakeLLM):
-    model_name = "MiniMax-M2"
+    model_name = "MiniMax-M3"
     inference_purpose = Purpose.EXTERNAL_INFERENCE
 
 
@@ -31,7 +31,7 @@ def test_settings_resolve_minimax_provider(monkeypatch) -> None:
     settings = Settings.load()
     assert settings.llm_provider == "minimax"
     assert settings.llm_base_url == "https://api.minimax.io/anthropic/v1"
-    assert settings.llm_model == "MiniMax-M2"
+    assert settings.llm_model == "MiniMax-M3"
     assert settings.llm_api_key_env == "ANTHROPIC_AUTH_TOKEN_MINIMAX2"
     client = LLMClient(settings)
     assert client.is_external
@@ -68,7 +68,7 @@ def test_external_extraction_allowed_by_policy_v2(
     with session_factory() as session:
         claims = session.query(PainClaim).all()
         assert claims
-        assert all(claim.model_version == "MiniMax-M2" for claim in claims)
+        assert all(claim.model_version == "MiniMax-M3" for claim in claims)
 
 
 def test_external_extraction_denied_without_right_falls_back(

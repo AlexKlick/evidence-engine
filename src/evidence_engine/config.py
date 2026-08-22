@@ -47,7 +47,7 @@ class Settings:
     # MiniMax Coding Plan covers the Anthropic-compatible endpoint; the
     # OpenAI-style /v1/chat/completions path is pay-as-you-go (1008 balance).
     minimax_base_url: str = "https://api.minimax.io/anthropic/v1"
-    minimax_model: str = "MiniMax-M2"
+    minimax_model: str = "MiniMax-M3"
     llm_timeout: float = 240.0
     llm_max_batch: int = 6
     llm_max_evidences: int = 24
@@ -118,7 +118,7 @@ class Settings:
         provider = (os.environ.get("EE_LLM_PROVIDER") or llm.get("provider") or "local").lower()
         if provider == "minimax":
             base_default = minimax.get("base_url", "https://api.minimax.io/v1")
-            model_default = minimax.get("model", "MiniMax-M2")
+            model_default = minimax.get("model", "MiniMax-M3")
         else:
             provider = "local"
             base_default = llm.get("base_url", "http://127.0.0.1:18000/v1")
@@ -142,7 +142,7 @@ class Settings:
             minimax_base_url=minimax.get(
                 "base_url", "https://api.minimax.io/anthropic/v1"
             ),
-            minimax_model=minimax.get("model", "MiniMax-M2"),
+            minimax_model=minimax.get("model", "MiniMax-M3"),
             llm_timeout=float(llm.get("timeout_seconds", 240.0)),
             llm_max_batch=int(llm.get("max_batch_evidences", 6)),
             llm_max_evidences=int(llm.get("max_evidences_per_run", 24)),

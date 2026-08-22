@@ -70,7 +70,7 @@ uv run ee bootstrap --idea <idea-id> --out ideas/          # scaffold a project 
 to the loopback lanes (`:18000` text-main, `:6900` embeddings) per the
 workstation `MODEL_CONTRACT.json`; while GPU 0 is unavailable, set
 `EE_LLM_PROVIDER=minimax` (with `ANTHROPIC_AUTH_TOKEN_MINIMAX2` sourced from
-`~/.claude/.env`) to extract via hosted MiniMax-M2 — authorized for derived
+`~/.claude/.env`) to extract via hosted MiniMax-M3 — authorized for derived
 searxng data under policy v2's `external_inference_authorization`.
 
 ## Nightly operator loop
