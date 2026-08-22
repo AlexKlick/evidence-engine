@@ -11,6 +11,7 @@ from evidence_engine.experiments.lifecycle import (
     validate_transition,
 )
 from evidence_engine.pipeline import Pipeline
+from evidence_engine.store import repository as repo
 from evidence_engine.store.models import Experiment
 
 VERTICAL = "local-ai-tooling"
@@ -110,3 +111,43 @@ def test_lifecycle_unknown_experiment_raises(session_factory) -> None:
             start_experiment(session, "exp_missing")
         with pytest.raises(KeyError):
             stop_experiment(session, "exp_missing")
+
+
+# -- codex adversarial review (gpt-5.6-sol): economics must be valid, not just present
+
+
+@pytest.mark.parametrize(
+    "price",
+    [0, -5, float("nan"), float("inf")],
+)
+def test_start_rejects_nonfinite_or_nonpositive_price(
+    session_factory, settings, price: float
+) -> None:
+    experiment_id = seed_experiment(session_factory, settings, with_price=False)
+    with session_factory() as session:
+        row = session.get(repo.Experiment, experiment_id)
+        spec = dict(row.spec or {})
+        guardrail = dict(spec.get("economics_guardrail") or {})
+        guardrail["price_monthly"] = price
+        spec["economics_guardrail"] = guardrail
+        row.spec = spec
+        session.commit()
+        with pytest.raises(ValueError, match="finite positive"):
+            start_experiment(session, experiment_id)
+
+
+def test_start_rejects_inconsistent_cap(session_factory, settings) -> None:
+    """cap/maximum_spend must match price x margin x months — a hand-edited or
+    drifting spec must not start with unrelated economics."""
+    experiment_id = seed_experiment(session_factory, settings)
+    with session_factory() as session:
+        row = session.get(repo.Experiment, experiment_id)
+        spec = dict(row.spec or {})
+        guardrail = dict(spec["economics_guardrail"])
+        guardrail["cac_ceiling"] = 999.0
+        spec["economics_guardrail"] = guardrail
+        spec["maximum_spend"] = 999.0
+        row.spec = spec
+        session.commit()
+        with pytest.raises(ValueError, match="cap"):
+            start_experiment(session, experiment_id)

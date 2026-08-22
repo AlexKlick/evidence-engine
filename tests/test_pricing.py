@@ -198,3 +198,45 @@ def test_derived_price_rounds_half_up() -> None:
         price_band=PriceBand(median_monthly=10.5, p25=9.0, p75=12.0, n=3),
     )
     assert spec["economics_guardrail"]["price_monthly"] == 11
+
+
+# -- codex adversarial review (gpt-5.6-sol) 2026-08-22 ------------------------
+# executable repros from the review, pinned as regressions
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # prefix-labelled plans: the marker before the amount must associate
+        # with THAT amount, not bleed forward or get dropped
+        ("Annual $99, monthly $15", [8.25, 15.0]),
+        ("Yearly: $99; Monthly: $15", [8.25, 15.0]),
+        ("monthly plan: $19", [19.0]),
+    ],
+)
+def test_prefix_period_labels_associate_with_their_amount(
+    text: str, expected: list[float]
+) -> None:
+    assert amounts(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # budgets, losses, and savings are NOT offer prices (the claim field is
+        # price_or_budget_signal — these used to become prices and spend caps)
+        "$50,000 per year budget",
+        "manual errors cost us $10,000 per month",
+        "save $500 a year",
+        "we waste $400 per month on this",
+        "worth $250 per month to us",
+    ],
+)
+def test_budget_loss_savings_language_is_not_an_offer_price(text: str) -> None:
+    assert amounts(text) == []
+
+
+def test_implausible_monthly_amounts_are_rejected() -> None:
+    # an enterprise quote / fine / anything > $2.5k normalized-monthly is not
+    # a plausible self-serve landing price — reject instead of capping spend at it
+    assert amounts("$30,000 per month") == []

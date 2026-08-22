@@ -9,8 +9,11 @@ legacy 'running' row written before this module is a legal value.
 
 from __future__ import annotations
 
+import math
+
 from sqlalchemy.orm import Session
 
+from evidence_engine.experiments.experiment import cac_ceiling
 from evidence_engine.logging_setup import get_logger
 from evidence_engine.store.models import Experiment
 
@@ -43,10 +46,52 @@ def validate_transition(current: str, target: str) -> None:
         )
 
 
+def _validate_economics(experiment_id: str, spec: dict) -> None:
+    """The spend cap must be real money: a finite positive price, and a cap
+    that still equals price x margin x payback.
+
+    Presence alone is not enough. A NaN or negative price passes a `is None`
+    check and then sets a nonsense cap, and a hand-edited or drifting spec can
+    carry a cap unrelated to its own economics.
+    """
+    guardrail = (spec or {}).get("economics_guardrail") or {}
+    price = guardrail.get("price_monthly")
+    if price is None:
+        raise ValueError(
+            f"cannot start experiment {experiment_id!r}: no price on the "
+            "economics_guardrail — pass --price or collect price evidence"
+        )
+    try:
+        price_value = float(price)
+    except (TypeError, ValueError):
+        price_value = float("nan")
+    if not math.isfinite(price_value) or price_value <= 0:
+        raise ValueError(
+            f"cannot start experiment {experiment_id!r}: price_monthly "
+            f"{price!r} is not a finite positive amount"
+        )
+    cap = guardrail.get("cac_ceiling")
+    if cap is None:
+        return
+    margin = float(guardrail.get("gross_margin") or 0.0)
+    months = int(guardrail.get("cac_payback_months") or 0)
+    expected = cac_ceiling(price_value, margin, months)
+    for label, value in (("cac_ceiling", cap), ("maximum_spend", spec.get("maximum_spend"))):
+        if value is None:
+            continue
+        if not math.isclose(float(value), expected, rel_tol=1e-6, abs_tol=0.01):
+            raise ValueError(
+                f"cannot start experiment {experiment_id!r}: spend cap "
+                f"{label}={value} does not match its own economics "
+                f"(price {price_value:g} x margin {margin:g} x "
+                f"{months} months = {expected}) — the spec drifted"
+            )
+
+
 def start_experiment(session: Session, experiment_id: str) -> Experiment:
     """draft -> running; caller owns the commit.
 
-    Hard gate: an experiment whose economics_guardrail has no price_monthly
+    Hard gate: an experiment whose economics_guardrail has no usable price
     cannot start — that is the anti-default guarantee (no invented $99). The
     fix is evidence (price signals on claims) or the operator override
     (`ee experiments start --price`).
@@ -54,12 +99,7 @@ def start_experiment(session: Session, experiment_id: str) -> Experiment:
     experiment = session.get(Experiment, experiment_id)
     if experiment is None:
         raise KeyError(f"experiment {experiment_id!r} not found")
-    guardrail = (experiment.spec or {}).get("economics_guardrail") or {}
-    if guardrail.get("price_monthly") is None:
-        raise ValueError(
-            f"cannot start experiment {experiment_id!r}: no price on the "
-            "economics_guardrail — pass --price or collect price evidence"
-        )
+    _validate_economics(experiment_id, experiment.spec or {})
     validate_transition(experiment.status, "running")
     experiment.status = "running"
     session.flush()

@@ -26,7 +26,25 @@ YEAR_PERIOD = re.compile(
     re.IGNORECASE,
 )
 FREE_WORD = re.compile(r"\bfree\b", re.IGNORECASE)
-PERIOD_WINDOW = 20  # chars after the amount that may carry the period marker
+PERIOD_WINDOW = 20  # chars either side of the amount that may carry a marker
+
+# The claim field is `price_or_budget_signal`, so budget/loss/savings strings
+# arrive here alongside real offers. "we waste $400 per month" is what the
+# PROBLEM costs, not what a buyer would pay — reading it as an offer price
+# inflated both the band and the spend cap derived from it.
+NON_OFFER = re.compile(
+    r"\bbudget(?:s|ed|ing)?\b"
+    r"|\bcosts?\s+(?:us|me|them|our|my)\b"
+    r"|\bwast(?:e|es|ed|ing)\b"
+    r"|\bsav(?:e|es|ed|ing|ings)\b"
+    r"|\bworth\b"
+    r"|\blos(?:e|es|ing|t)\b",
+    re.IGNORECASE,
+)
+
+# Above this, a "self-serve landing price" is an enterprise quote, a fine, or
+# a misparse. Reject it rather than let it set a real spend cap.
+MAX_PLAUSIBLE_MONTHLY = 2500.0
 
 
 @dataclass(frozen=True)
@@ -48,42 +66,80 @@ class PriceBand:
     free_tier_count: int = 0
 
 
+def _period_markers(text: str) -> list[tuple[int, int, str]]:
+    """Every period marker in the text as (start, end, "month" | "year")."""
+    markers = [(m.start(), m.end(), "month") for m in MONTH_PERIOD.finditer(text)]
+    markers += [(m.start(), m.end(), "year") for m in YEAR_PERIOD.finditer(text)]
+    markers.sort()
+    return markers
+
+
 def parse_prices(text: str) -> list[PricePoint]:
     """Parse product prices from one price-signal string.
 
     Rules (see module docstring for the rationale):
     * "$9.99 per month" / "$250/mo" / "$19 monthly" -> amount as-is
     * "$99 per year" / "$99/yr" / annual variants -> amount / 12
+    * "Annual $99, monthly $15" -> a label BEFORE the amount counts too
     * "free" / "$0" -> 0.0 (a free tier, excluded from band statistics)
     * percentages, currency-less numbers, period-less amounts -> rejected
+    * budget/loss/savings phrasing -> rejected (not an offer price)
+    * anything over MAX_PLAUSIBLE_MONTHLY -> rejected
     * one string can yield several points (monthly OR yearly plan options)
+
+    Each marker is claimed by exactly ONE amount: nearest wins, year wins
+    ties, and a claimed marker is off the table for every other amount. That
+    is what keeps "$9.99 per month or $99 per year" from reading "month"
+    twice, and "Annual $99, monthly $15" from reading "monthly" for $99.
     """
     if not text:
         return []
     cleaned = PERCENT_TOKEN.sub(" ", text)
+    if NON_OFFER.search(cleaned):
+        return []
+    matches = list(MONEY.finditer(cleaned))
+    markers = _period_markers(cleaned)
+    claimed: set[int] = set()
     points: list[PricePoint] = []
     zero_seen = False
-    for match in MONEY.finditer(cleaned):
+    for index, match in enumerate(matches):
         amount = float(match.group(1).replace(",", ""))
         if amount == 0:
             zero_seen = True
             points.append(PricePoint(0.0, match.group(0).strip()))
             continue
-        # the window ends at the NEXT currency amount so one price's period
-        # marker can never bleed into another's ("$99/yr, $15/mo" — review
-        # finding 2026-08-22: the unbounded window read "/mo" for $99)
-        next_amount = cleaned.find("$", match.end())
-        window_end = match.end() + PERIOD_WINDOW
-        if next_amount != -1:
-            window_end = min(window_end, next_amount)
-        window = cleaned[match.end() : window_end]
-        month_at = MONTH_PERIOD.search(window)
-        year_at = YEAR_PERIOD.search(window)
-        # nearest marker wins; year wins ties (annual-first phrasing is common)
-        if year_at and (month_at is None or year_at.start() <= month_at.start()):
-            points.append(PricePoint(round(amount / 12, 2), match.group(0).strip()))
-        elif month_at:
-            points.append(PricePoint(amount, match.group(0).strip()))
+        # a marker may sit before or after the amount, but never across a
+        # neighbouring amount — that bounded search is what stops one price's
+        # marker bleeding into another's (review finding 2026-08-22)
+        prev_end = matches[index - 1].end() if index else 0
+        next_start = (
+            matches[index + 1].start() if index + 1 < len(matches) else len(cleaned)
+        )
+        best: tuple[tuple[int, bool], int, str] | None = None
+        for marker_index, (start, end, kind) in enumerate(markers):
+            if marker_index in claimed:
+                continue
+            if end <= match.start():  # label before the amount
+                if start < prev_end or match.start() - end > PERIOD_WINDOW:
+                    continue
+                distance = match.start() - end
+            elif start >= match.end():  # marker after the amount
+                if end > next_start or start - match.end() > PERIOD_WINDOW:
+                    continue
+                distance = start - match.end()
+            else:
+                continue  # overlaps the amount itself
+            # nearest wins; year wins ties (annual-first phrasing is common)
+            key = (distance, kind != "year")
+            if best is None or key < best[0]:
+                best = (key, marker_index, kind)
+        if best is None:
+            continue
+        claimed.add(best[1])
+        monthly = round(amount / 12, 2) if best[2] == "year" else amount
+        if monthly > MAX_PLAUSIBLE_MONTHLY:
+            continue
+        points.append(PricePoint(monthly, match.group(0).strip()))
     if not zero_seen and FREE_WORD.search(cleaned):
         points.append(PricePoint(0.0, "free"))
     return points
