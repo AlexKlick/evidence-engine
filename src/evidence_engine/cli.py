@@ -501,6 +501,9 @@ def experiments_start(
             typer.echo(f"error: experiment {experiment!r} not found")
             raise typer.Exit(1)
         if price is not None:
+            if price <= 0:
+                typer.echo("error: --price must be a positive monthly amount")
+                raise typer.Exit(1)
             spec = dict(row.spec or {})
             guardrail = dict(spec.get("economics_guardrail") or {})
             margin = float(
@@ -739,9 +742,10 @@ def landing(
         )
         content = landing_content(idea, hypothesis, spec)
         markdown = render_landing_markdown(idea, hypothesis, spec)
-        # publication gate (ADR-0005): no scraped text may reach any artifact,
-        # in either the markdown or the html path
-        evidence_rows = repo.evidence_by_ids(session, hypothesis.evidence_for or [])
+        # publication gate (ADR-0005): no scraped text may reach the landing
+        # artifacts (markdown or html path). report/bootstrap outputs remain
+        # operator-local and unguarded — follow-up, see review 2026-08-22
+        evidence_rows = repo.evidence_by_ids(session, evidence_ids)
         texts = {
             "markdown": markdown,
             "html_a": render_landing_html(content, "a"),

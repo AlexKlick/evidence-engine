@@ -71,6 +71,15 @@ def render_landing_html(content: LandingContent, variant: str) -> str:
     else:
         headline, body, framing = content.headline_b, content.body_b, "outcome framing"
     esc = html.escape
+    price_month = (
+        f"${content.price_monthly}/month"
+        if content.price_monthly is not None
+        else "price TBD"
+    )
+    price_mo = (
+        f"${content.price_monthly}/mo" if content.price_monthly is not None else "TBD"
+    )
+    cac = f"${content.cac_ceiling}" if content.cac_ceiling is not None else "unset"
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -83,13 +92,13 @@ def render_landing_html(content: LandingContent, variant: str) -> str:
 <main>
 <h1>{esc(headline)}</h1>
 <p class="lead">{esc(body)}</p>
-<p class="price">${content.price_monthly}/month — visible before the CTA.</p>
+<p class="price">{price_month} — visible before the CTA.</p>
 <a class="cta" href="#checkout" id="checkout">Start paid pilot</a>
 <footer>
 Variant {variant.upper()} ({esc(framing)}) · 50/50 randomized ·
 primary metric: {esc(content.primary_metric)} ·
-CAC ceiling ${content.cac_ceiling}
-(price ${content.price_monthly}/mo × margin × {content.payback_months}-mo payback) ·
+CAC ceiling {cac}
+(price {price_mo} × margin × {content.payback_months}-mo payback) ·
 stop condition: {esc(content.stop_condition)}
 </footer>
 </main>

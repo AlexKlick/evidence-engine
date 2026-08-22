@@ -69,11 +69,21 @@ def parse_prices(text: str) -> list[PricePoint]:
             zero_seen = True
             points.append(PricePoint(0.0, match.group(0).strip()))
             continue
-        window = cleaned[match.end() : match.end() + PERIOD_WINDOW]
-        if MONTH_PERIOD.search(window):
-            points.append(PricePoint(amount, match.group(0).strip()))
-        elif YEAR_PERIOD.search(window):
+        # the window ends at the NEXT currency amount so one price's period
+        # marker can never bleed into another's ("$99/yr, $15/mo" — review
+        # finding 2026-08-22: the unbounded window read "/mo" for $99)
+        next_amount = cleaned.find("$", match.end())
+        window_end = match.end() + PERIOD_WINDOW
+        if next_amount != -1:
+            window_end = min(window_end, next_amount)
+        window = cleaned[match.end() : window_end]
+        month_at = MONTH_PERIOD.search(window)
+        year_at = YEAR_PERIOD.search(window)
+        # nearest marker wins; year wins ties (annual-first phrasing is common)
+        if year_at and (month_at is None or year_at.start() <= month_at.start()):
             points.append(PricePoint(round(amount / 12, 2), match.group(0).strip()))
+        elif month_at:
+            points.append(PricePoint(amount, match.group(0).strip()))
     if not zero_seen and FREE_WORD.search(cleaned):
         points.append(PricePoint(0.0, "free"))
     return points
@@ -85,7 +95,8 @@ def price_band(amounts: Iterable[float]) -> PriceBand | None:
     Free tiers (0.0) are excluded from the statistics but counted in
     `free_tier_count` so "everyone ships a free plan" stays visible.
     """
-    values = sorted(amount for amount in amounts if amount > 0)
+    values_in = list(amounts)  # generators would exhaust between the two passes
+    values = sorted(amount for amount in values_in if amount > 0)
     if not values:
         return None
     if len(values) == 1:
@@ -97,7 +108,7 @@ def price_band(amounts: Iterable[float]) -> PriceBand | None:
         p25=q25,
         p75=q75,
         n=len(values),
-        free_tier_count=sum(1 for amount in amounts if amount == 0),
+        free_tier_count=sum(1 for amount in values_in if amount == 0),
     )
 
 

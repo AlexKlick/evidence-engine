@@ -77,12 +77,25 @@ def landing_content(idea, hypothesis, spec: dict) -> LandingContent:
 def render_landing_markdown(idea, hypothesis, spec: dict) -> str:
     """Message-test-ready landing draft: outcome vs feature framing + price."""
     content = landing_content(idea, hypothesis, spec)
+    price_cta = (
+        f"**${content.price_monthly}/month**"
+        if content.price_monthly is not None
+        else "**price TBD** (no price evidence yet — do not start this experiment)"
+    )
+    price_short = (
+        f"${content.price_monthly}/mo" if content.price_monthly is not None else "no price"
+    )
+    cac_line = (
+        f"CAC ceiling **${content.cac_ceiling}**"
+        if content.cac_ceiling is not None
+        else "CAC ceiling **unset** (no price evidence)"
+    )
     return f"""# Landing draft — {content.pitch}
 
 > Variant A (feature framing) vs Variant B (outcome framing), 50/50
 > randomized. Primary metric: {content.primary_metric}.
-> Economics guardrail: CAC ceiling **${content.cac_ceiling}**
-> (price ${content.price_monthly}/mo × margin × {content.payback_months}-month payback).
+> Economics guardrail: {cac_line}
+> (price {price_short} × margin × {content.payback_months}-month payback).
 
 ## Variant A — feature framing
 
@@ -90,7 +103,7 @@ def render_landing_markdown(idea, hypothesis, spec: dict) -> str:
 
 {content.body_a}
 
-**${content.price_monthly}/month** · [Start paid pilot](#checkout)
+{price_cta} · [Start paid pilot](#checkout)
 
 ## Variant B — outcome framing
 
@@ -98,7 +111,7 @@ def render_landing_markdown(idea, hypothesis, spec: dict) -> str:
 
 {content.body_b}
 
-**${content.price_monthly}/month** · [Start paid pilot](#checkout)
+{price_cta} · [Start paid pilot](#checkout)
 
 ## Checkout (both variants)
 

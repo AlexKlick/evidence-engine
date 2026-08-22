@@ -58,8 +58,14 @@ def test_html_variants_self_contained(
         assert "src=" not in text, "no external assets"
         assert 'href="http' not in text, "no external links (CTA is #checkout)"
         assert "<style>" in text, "inline CSS present"
-        # price-visibility test: price appears before the CTA in source order
-        assert text.index(f"${content.price_monthly}") < text.index("Start paid pilot")
+        # price-visibility test: the price line (or its TBD marker) appears
+        # before the CTA in source order — priceless specs included
+        price_token = (
+            f"${content.price_monthly}"
+            if content.price_monthly is not None
+            else "price TBD"
+        )
+        assert text.index(price_token) < text.index("Start paid pilot")
         assert f"Variant {variant.upper()}" in text
     # variants differ in framing headline (the <title> carries the shared pitch)
     page_a = (tmp_path / "landing-a.html").read_text(encoding="utf-8")
@@ -186,7 +192,45 @@ def test_shared_content_model_consistent(
     write_landing_html(tmp_path, content)
     page = (tmp_path / "landing-a.html").read_text(encoding="utf-8")
 
-    assert f"${content.price_monthly}/month" in markdown
-    assert f"${content.price_monthly}/month" in page
+    price_token = (
+        f"${content.price_monthly}/month"
+        if content.price_monthly is not None
+        else "price TBD"
+    )
+    assert price_token in markdown
+    assert price_token in page
     assert content.pitch in markdown
     assert content.pitch in page
+
+
+def test_priceless_spec_renders_tbd_not_dollar_none(
+    fake_adapters, session_factory, settings
+) -> None:
+    """A spec with no price (no evidence band, no override) must never emit
+    a servable '$None/month' — the adversarial review's live-verified P1."""
+    from evidence_engine.experiments.landing import render_landing_markdown
+    from evidence_engine.experiments.landing_html import render_landing_html
+
+    Pipeline(
+        settings=settings, session_factory=session_factory, embedder=FakeEmbedder()
+    ).run(VERTICAL, limit=3, use_llm=False)  # heuristic: no price signals
+    with session_factory() as session:
+        idea = sorted(
+            repo.ideas_for_vertical(session, VERTICAL),
+            key=lambda i: i.score_total,
+            reverse=True,
+        )[0]
+        hypothesis = repo.get_hypothesis(session, idea.hypothesis_id)
+        spec = draft_experiment_spec(
+            idea, hypothesis, load_rubric(settings).get("experiment_defaults") or {}
+        )
+        content = landing_content(idea, hypothesis, spec)
+
+    assert content.price_monthly is None  # precondition: priceless spec
+    markdown = render_landing_markdown(idea, hypothesis, spec)
+    assert "$None" not in markdown
+    assert "TBD" in markdown
+    for variant in ("a", "b"):
+        page = render_landing_html(content, variant)
+        assert "$None" not in page, variant
+        assert "TBD" in page, variant

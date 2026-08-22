@@ -375,3 +375,31 @@ def test_review_show_arg_errors(
     unknown = runner.invoke(app, ["review", "--show", "-H", "hyp_missing"])
     assert unknown.exit_code == 1
     assert "not found" in unknown.output
+
+
+def test_experiments_start_rejects_nonpositive_price(
+    fake_adapters, session_factory, settings, monkeypatch, tmp_path
+) -> None:
+    """--price 0 / negative would publish a free/negative price or crash the
+    cap arithmetic — rejected at the CLI edge (adversarial-review finding)."""
+    from typer.testing import CliRunner
+
+    from conftest import FakeEmbedder
+    from evidence_engine.cli import app
+    from evidence_engine.pipeline import Pipeline
+    from evidence_engine.store import repository as repo
+
+    Pipeline(
+        settings=settings, session_factory=session_factory, embedder=FakeEmbedder()
+    ).run("local-ai-tooling", limit=3, use_llm=False)
+    monkeypatch.setenv("EE_DB_DSN", settings.db_url)
+    monkeypatch.setenv("EE_IDEAS_DIR", str(settings.ideas_dir))
+    with session_factory() as session:
+        experiment = repo.list_experiments(session, status="draft")[0]
+    runner = CliRunner()
+    for bad in ("0", "-5"):
+        result = runner.invoke(
+            app, ["experiments", "start", "-e", experiment.id, "--price", bad]
+        )
+        assert result.exit_code == 1, (bad, result.output)
+        assert "positive" in result.output

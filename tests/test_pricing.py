@@ -159,3 +159,42 @@ def test_draft_spec_ignores_stale_price_default() -> None:
     spec = draft(None, defaults={**RUBRIC_DEFAULTS, "price_monthly": 99})
     assert spec["economics_guardrail"]["price_monthly"] is None
     assert spec["maximum_spend"] is None
+
+
+# -- adversarial-review findings 2026-08-22 -----------------------------------
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # period window must not bleed into the NEXT price's marker (P0):
+        # 99 was misparsed as monthly -> 12x cap inflation
+        ("$99/yr, $15/mo", [8.25, 15.0]),
+        ("Annual: $99/year. Monthly: $15/month.", [8.25, 15.0]),
+        # monthly-first ordering must keep working both ways
+        ("$15/mo or $99/yr", [15.0, 8.25]),
+    ],
+)
+def test_yearly_first_strings_do_not_bleed_into_monthly(text: str, expected: list[float]) -> None:
+    assert amounts(text) == expected
+
+
+def test_price_band_accepts_generator_input() -> None:
+    band = price_band(amount for amount in [10.0, 0.0, 20.0])
+    assert band is not None
+    assert band.n == 2
+    assert band.free_tier_count == 1
+
+
+def test_derived_price_rounds_half_up() -> None:
+    # round() is banker's rounding: 10.5 -> 10; spend math rounds half up
+    from evidence_engine.nlp.pricing import PriceBand
+
+    idea = SimpleNamespace(form="productized_service", pitch="p")
+    hypothesis = SimpleNamespace(title="t", buyer="b", job="j", pain="p")
+    spec = draft_experiment_spec(
+        idea,
+        hypothesis,
+        {"gross_margin": 0.85, "cac_payback_months": 6},
+        price_band=PriceBand(median_monthly=10.5, p25=9.0, p75=12.0, n=3),
+    )
+    assert spec["economics_guardrail"]["price_monthly"] == 11

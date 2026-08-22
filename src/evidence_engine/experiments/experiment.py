@@ -33,7 +33,8 @@ def draft_experiment_spec(
     """
     margin = float(experiment_defaults.get("gross_margin", 0.85))
     months = int(experiment_defaults.get("cac_payback_months", 6))
-    price = round(price_band.median_monthly) if price_band is not None else None
+    # half-up (round() is banker's rounding: 10.5 -> 10)
+    price = int(price_band.median_monthly + 0.5) if price_band is not None else None
     cap = cac_ceiling(price, margin, months) if price is not None else None
     return {
         "hypothesis": f"{getattr(hypothesis, 'title', '')} :: {getattr(idea, 'form', '')}",
