@@ -51,7 +51,9 @@ uv run ee pipeline --all --limit 5                         # every configured ve
 uv run ee report --vertical local-ai-tooling               # regenerate report from the store
 uv run ee ideas list [--band collect_more]
 # decision support: what to review, who you'd displace, what to ship
-uv run ee review --queue                                   # hypotheses failing hard gates, ranked
+uv run ee review --queue                                   # failing hard gates OR awaiting sign-off, ranked
+# paid_validation is an operator-reviewed state: pipeline scoring caps at interview
+# even when the score crosses 80 — re-affirm fields via `ee review -H` to unlock
 uv run ee competitors --vertical local-ai-tooling          # incumbent pressure from evidence
 uv run ee landing --idea <idea-id> --html                   # A/B draft + static landing-a/b.html + events.json (ADR-0005)
 # operator loop: review the human gate, record outcomes, watch calibration

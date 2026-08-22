@@ -106,6 +106,30 @@ def test_hard_gates_cap_band(settings) -> None:
     assert result.band != "paid_validation"
 
 
+def test_paid_validation_requires_operator_review(settings) -> None:
+    rubric = load_rubric(settings)
+    rows = [
+        make_row(f"ev{i}", ["problem_aware", "workaround", "transactional", "comparison"])
+        for i in range(8)
+    ]
+    claims = [make_claim(f"ev{i}", urgency=0.9) for i in range(8)]
+    features = aggregate_features(rows, claims)
+
+    signed_off = score_idea(
+        features, strong_hypothesis(), "productized_service", rubric, reviewed=True
+    )
+    assert signed_off.total >= 80  # fixture must cross the threshold
+    assert signed_off.band == "paid_validation"
+    assert signed_off.awaiting_review is False
+
+    # pipeline scoring of the exact same evidence caps at interview:
+    # derived gates (personas, form templates) are priors, not review
+    pipeline = score_idea(features, strong_hypothesis(), "productized_service", rubric)
+    assert pipeline.total == signed_off.total
+    assert pipeline.band == "interview"
+    assert pipeline.awaiting_review is True
+
+
 def test_rights_not_clear_gates_and_zeroes_compliance(settings) -> None:
     rubric = load_rubric(settings)
     rows = [make_row("ev1", ["problem_aware"])]

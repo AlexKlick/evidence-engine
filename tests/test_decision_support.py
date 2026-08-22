@@ -105,13 +105,15 @@ def test_velocity_needs_two_days(fake_adapters, session_factory, settings) -> No
 def test_report_sections_reflect_gate_state(
     fake_adapters, session_factory, settings
 ) -> None:
-    # LLM-mode run: personas fill buyers -> gates pass -> NO review queue,
-    # but incumbents exist -> competitor pressure section present.
+    # LLM-mode run: personas fill buyers -> gates pass, but the FakeLLM seed
+    # crosses the paid_validation threshold, so its hypotheses surface in the
+    # review queue as awaiting operator sign-off (band capped at interview),
+    # and incumbents exist -> competitor pressure section present.
     result = seed(session_factory, settings, use_llm=True)
     markdown = result.report_path.read_text(encoding="utf-8")
     assert "## Competitor pressure" in markdown
     assert "bigtool" in markdown
-    assert "## Review queue" not in markdown
+    assert "awaiting review sign-off (paid_validation capped)" in markdown
     assert "velocity: n/a (single day of evidence so far)" in markdown
 
 

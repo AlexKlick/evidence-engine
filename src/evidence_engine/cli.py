@@ -278,7 +278,10 @@ def review(
     job: Annotated[str | None, typer.Option("--job")] = None,
     pain: Annotated[str | None, typer.Option("--pain")] = None,
     queue: Annotated[
-        bool, typer.Option("--queue", help="list hypotheses failing hard gates")
+        bool,
+        typer.Option(
+            "--queue", help="list hypotheses failing hard gates or awaiting sign-off"
+        ),
     ] = False,
     show: Annotated[
         bool,
@@ -295,16 +298,21 @@ def review(
     if queue:
         from evidence_engine.ideas.review import review_queue
 
+        rubric = load_rubric(settings)
         with make_session_factory(engine)() as session:
-            entries = review_queue(session)
+            entries = review_queue(session, rubric=rubric)
         if not entries:
             typer.echo("review queue empty — every hypothesis passes its gates")
             return
-        typer.echo(f"{len(entries)} hypotheses with open hard gates:")
+        typer.echo(f"{len(entries)} hypotheses needing review:")
         for entry in entries:
+            if entry.get("awaiting_review"):
+                status = "awaiting review sign-off (paid_validation capped)"
+            else:
+                status = f"missing={','.join(entry['missing'])}"
             typer.echo(
                 f"  {entry['hypothesis_id']}  best={entry['best_score']:5.1f}  "
-                f"ideas={entry['ideas']}  missing={','.join(entry['missing'])}"
+                f"ideas={entry['ideas']}  {status}"
             )
         return
 
@@ -323,7 +331,7 @@ def review(
             raise typer.Exit(1)
         with make_session_factory(engine)() as session:
             try:
-                pack = evidence_pack(session, hypothesis)
+                pack = evidence_pack(session, hypothesis, rubric=load_rubric(settings))
             except KeyError as exc:
                 typer.echo(f"error: {exc.args[0]}")
                 raise typer.Exit(1) from exc

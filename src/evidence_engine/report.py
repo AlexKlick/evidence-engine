@@ -220,7 +220,7 @@ def render_vertical_report(
         lines += ["", "## Competitor pressure", ""]
         lines += render_competitors_markdown(overview)
 
-    queue = review_queue(session, slug)
+    queue = review_queue(session, slug, rubric=rubric)
     if queue:
         lines += [
             "",
@@ -230,10 +230,15 @@ def render_vertical_report(
             "|---|---:|---:|---|",
         ]
         for entry in queue[:5]:
+            missing = (
+                "_awaiting review sign-off (paid_validation capped)_"
+                if entry.get("awaiting_review")
+                else ", ".join(entry["missing"])
+            )
             lines.append(
                 f"| `{entry['hypothesis_id']}` ({entry['title'][:40]}) "
                 f"| {entry['best_score']:.0f} | {entry['ideas']} "
-                f"| {', '.join(entry['missing'])} |"
+                f"| {missing} |"
             )
 
     lines += [
