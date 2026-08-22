@@ -168,7 +168,7 @@ def test_landing_cli_emits_drafts(
     ]
 
 
-def _seed_contaminated_idea(session_factory, settings) -> tuple[str, str]:
+def _seed_contaminated_idea(session_factory, settings, against=False) -> tuple[str, str]:
     """Seed a top idea whose hypothesis.job echoes a cited evidence snippet."""
     from evidence_engine.store.models import EvidenceEvent, Query, SourceRun
 
@@ -203,7 +203,12 @@ def _seed_contaminated_idea(session_factory, settings) -> tuple[str, str]:
         )
         session.add(evidence)
         session.flush()
-        hypothesis.evidence_for = list(hypothesis.evidence_for or []) + [evidence.id]
+        if against:
+            hypothesis.evidence_against = list(hypothesis.evidence_against or []) + [
+                evidence.id
+            ]
+        else:
+            hypothesis.evidence_for = list(hypothesis.evidence_for or []) + [evidence.id]
         hypothesis.job = f"get chains out: {span}"  # contaminated field
         session.commit()
         return idea.id, evidence.id
@@ -247,3 +252,59 @@ def test_landing_cli_guard_fires_in_markdown_path_too(
     assert result.exit_code == 1, result.output
     assert "error:" in result.output
     assert not (tmp_path / idea_id / "landing.md").exists()
+
+
+def test_landing_cli_guards_evidence_against_lineage(
+    fake_adapters, session_factory, settings, monkeypatch, tmp_path
+) -> None:
+    """Codex finding: an echo carried by an evidence_against row (anti-demand
+    lineage) must abort the export too, not just evidence_for."""
+    from typer.testing import CliRunner
+
+    from evidence_engine.cli import app
+
+    idea_id, evidence_id = _seed_contaminated_idea(
+        session_factory, settings, against=True
+    )
+    monkeypatch.setenv("EE_DB_DSN", settings.db_url)
+    monkeypatch.setenv("EE_IDEAS_DIR", str(tmp_path))
+    runner = CliRunner()
+    result = runner.invoke(app, ["landing", "-i", idea_id, "--html"])
+    assert result.exit_code == 1, result.output
+    assert evidence_id in result.output
+
+
+def test_landing_uses_persisted_experiment_spec(
+    fake_adapters, session_factory, settings, monkeypatch, tmp_path
+) -> None:
+    """Codex finding: `experiments start --price` commits economics to
+    Experiment.spec; the landing must render THAT spec, not re-draft from
+    claims (which showed 'price TBD' next to a running $12 experiment)."""
+    from typer.testing import CliRunner
+
+    from evidence_engine.cli import app
+
+    seed(session_factory, settings, use_llm=True)  # synthetic job/pain: guard-clean
+    with session_factory() as session:
+        idea = sorted(
+            repo.ideas_for_vertical(session, VERTICAL),
+            key=lambda i: i.score_total,
+            reverse=True,
+        )[0]
+        experiment = repo.latest_experiment_for_idea(session, idea.id)
+    assert experiment is not None
+    monkeypatch.setenv("EE_DB_DSN", settings.db_url)
+    monkeypatch.setenv("EE_IDEAS_DIR", str(tmp_path))
+    runner = CliRunner()
+    started = runner.invoke(
+        app, ["experiments", "start", "-e", experiment.id, "--price", "12"]
+    )
+    assert started.exit_code == 0, started.output
+    experiment_id = experiment.id
+
+    result = runner.invoke(app, ["landing", "-i", idea.id, "--html"])
+    assert result.exit_code == 0, result.output
+    text = (tmp_path / idea.id / "landing.md").read_text(encoding="utf-8")
+    assert "$12.0/month" in text  # persisted float renders 12.0
+    assert "TBD" not in text
+    assert experiment_id  # linked experiment existed

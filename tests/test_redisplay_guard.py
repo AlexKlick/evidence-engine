@@ -116,3 +116,23 @@ def test_title_is_also_checked() -> None:
 
 def test_no_evidence_rows_passes() -> None:
     assert_no_verbatim_redisplay({"markdown": BAD_HEADLINE}, [])
+
+
+# -- codex adversarial review (gpt-5.6-sol): fail closed on incomplete lineage
+
+
+def test_missing_evidence_rows_fail_closed() -> None:
+    """A dangling evidence id (deletion leaves them) must abort the export —
+    an unguarded artifact could carry text from a row we can no longer check."""
+    row = evidence_row("ev1", BAD_SNIPPET)
+    with pytest.raises(VerbatimRedisplayError, match="missing evidence rows"):
+        assert_no_verbatim_redisplay(
+            {"page": CLEAN_HEADLINE}, [row], expected_ids=["ev1", "ev_gone"]
+        )
+
+
+def test_expected_ids_satisfied_passes() -> None:
+    row = evidence_row("ev1", BAD_SNIPPET)
+    assert_no_verbatim_redisplay(
+        {"page": CLEAN_HEADLINE}, [row], expected_ids=["ev1"]
+    )

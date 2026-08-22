@@ -64,12 +64,37 @@ def _first_common_span(a: str, b: str, size: int) -> str:
     return ""  # pragma: no cover - size came from longest_common_word_ngram
 
 
-def assert_no_verbatim_redisplay(texts: dict[str, str], evidence_rows: list) -> None:
+def assert_no_verbatim_redisplay(
+    texts: dict[str, str],
+    evidence_rows: list,
+    expected_ids: list[str] | None = None,
+) -> None:
     """Raise VerbatimRedisplayError if any artifact text echoes evidence.
 
     The error message carries the artifact name, the evidence id (lineage),
     and the matching span so the operator can fix the source of the copy.
+
+    Fails CLOSED on incomplete lineage: with `expected_ids` (every evidence id
+    the artifacts may draw on, for AND against), a referenced id whose row is
+    gone — deletion deliberately leaves dangling ids — aborts the export.
+    Silently skipping an uncheckable source would let its text through
+    unguarded.
     """
+    if expected_ids is not None:
+        present = {getattr(row, "id", "?") for row in evidence_rows}
+        missing = [evidence_id for evidence_id in expected_ids if evidence_id not in present]
+        if missing:
+            logger.error(
+                "redisplay guard would fail open: %d referenced evidence rows "
+                "missing (%s) — aborting",
+                len(missing),
+                ", ".join(missing[:5]),
+            )
+            raise VerbatimRedisplayError(
+                f"cannot verify no-redisplay: missing evidence rows {missing} "
+                "(deleted lineage) — regenerate the artifacts from current "
+                "evidence"
+            )
     for artifact_name, text in texts.items():
         for row in evidence_rows:
             row_id = getattr(row, "id", "?")

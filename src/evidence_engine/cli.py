@@ -731,20 +731,36 @@ def landing(
             typer.echo(f"idea {idea_id!r} not found")
             raise typer.Exit(1)
         hypothesis = repo.get_hypothesis(session, idea.hypothesis_id)
-        evidence_ids = list(hypothesis.evidence_for or []) if hypothesis else []
-        spec = draft_experiment_spec(
-            idea,
-            hypothesis,
-            load_rubric(settings).get("experiment_defaults") or {},
-            price_band=band_from_claims(
-                repo.claims_for_evidence(session, evidence_ids)
-            ),
-        )
+        # persisted Experiment.spec is authoritative: `experiments start
+        # --price` commits operator economics there, and the landing must show
+        # the RUNNING experiment's numbers, not a fresh draft from claims
+        experiment = repo.latest_experiment_for_idea(session, idea.id)
+        if experiment is not None and experiment.spec:
+            spec = dict(experiment.spec)
+        else:
+            evidence_ids_for_band = (
+                list(hypothesis.evidence_for or []) if hypothesis else []
+            )
+            spec = draft_experiment_spec(
+                idea,
+                hypothesis,
+                load_rubric(settings).get("experiment_defaults") or {},
+                price_band=band_from_claims(
+                    repo.claims_for_evidence(session, evidence_ids_for_band)
+                ),
+            )
         content = landing_content(idea, hypothesis, spec)
         markdown = render_landing_markdown(idea, hypothesis, spec)
         # publication gate (ADR-0005): no scraped text may reach the landing
-        # artifacts (markdown or html path). report/bootstrap outputs remain
+        # artifacts (markdown or html path). Guards evidence_for AND
+        # evidence_against lineage, and fails closed when a referenced row is
+        # missing (deleted lineage). report/bootstrap outputs remain
         # operator-local and unguarded — follow-up, see review 2026-08-22
+        evidence_ids = []
+        if hypothesis is not None:
+            evidence_ids = list(hypothesis.evidence_for or []) + list(
+                hypothesis.evidence_against or []
+            )
         evidence_rows = repo.evidence_by_ids(session, evidence_ids)
         texts = {
             "markdown": markdown,
@@ -752,7 +768,7 @@ def landing(
             "html_b": render_landing_html(content, "b"),
         }
         try:
-            assert_no_verbatim_redisplay(texts, evidence_rows)
+            assert_no_verbatim_redisplay(texts, evidence_rows, expected_ids=evidence_ids)
         except VerbatimRedisplayError as exc:
             typer.echo(f"error: {exc}")
             raise typer.Exit(1) from exc

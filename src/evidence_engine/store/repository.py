@@ -296,6 +296,17 @@ def list_experiments(
     return list(session.execute(stmt).scalars())
 
 
+def latest_experiment_for_idea(session: Session, idea_id: str) -> Experiment | None:
+    """The idea's most recent experiment (operator overrides land on it)."""
+    stmt = (
+        select(Experiment)
+        .where(Experiment.idea_id == idea_id)
+        .order_by(Experiment.created_at.desc())
+        .limit(1)
+    )
+    return session.execute(stmt).scalars().first()
+
+
 def latest_snapshot(session: Session, idea_id: str) -> ScoreSnapshot | None:
     stmt = (
         select(ScoreSnapshot)

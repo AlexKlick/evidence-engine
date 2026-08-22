@@ -70,6 +70,17 @@ def _validate_economics(experiment_id: str, spec: dict) -> None:
             f"cannot start experiment {experiment_id!r}: price_monthly "
             f"{price!r} is not a finite positive amount"
         )
+    # A price with no provenance IS the invented-$99 failure mode. Presence was
+    # the only gate until 2026-08-22, so every spec drafted before the pricing
+    # module landed carries an unsourced 99.0 that passes `is not None` and
+    # then sets a real spend cap.
+    if not guardrail.get("price_provenance"):
+        raise ValueError(
+            f"cannot start experiment {experiment_id!r}: price_monthly "
+            f"{price_value:g} has no price_provenance — an unsourced price is "
+            "the invented-$99 failure mode this gate exists to stop. Re-derive "
+            "it from evidence, or pass --price to record an operator override."
+        )
     cap = guardrail.get("cac_ceiling")
     if cap is None:
         return

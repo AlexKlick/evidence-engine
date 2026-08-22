@@ -151,3 +151,27 @@ def test_start_rejects_inconsistent_cap(session_factory, settings) -> None:
         session.commit()
         with pytest.raises(ValueError, match="cap"):
             start_experiment(session, experiment_id)
+
+
+def test_start_rejects_price_without_provenance(session_factory, settings) -> None:
+    """The pre-2026-08-22 shape: an unsourced 99.0 that passes `is not None`.
+
+    474 specs were drafted with the illustrative $99 and a $504.90 cap before
+    the pricing module reached draft_experiment_spec. Presence alone let every
+    one of them start, which is the exact failure the anti-default guarantee
+    is for.
+    """
+    experiment_id = seed_experiment(session_factory, settings)
+    with session_factory() as session:
+        row = session.get(repo.Experiment, experiment_id)
+        spec = dict(row.spec or {})
+        guardrail = dict(spec["economics_guardrail"])
+        guardrail["price_monthly"] = 99.0
+        guardrail["price_provenance"] = None
+        guardrail["cac_ceiling"] = 504.9  # internally consistent: 99 x 0.85 x 6
+        spec["economics_guardrail"] = guardrail
+        spec["maximum_spend"] = 504.9
+        row.spec = spec
+        session.commit()
+        with pytest.raises(ValueError, match="no price_provenance"):
+            start_experiment(session, experiment_id)
