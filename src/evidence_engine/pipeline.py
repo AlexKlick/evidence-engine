@@ -26,6 +26,7 @@ from evidence_engine.nlp.dedupe import find_duplicates
 from evidence_engine.nlp.embeddings import EmbeddingClient, EmbeddingUnavailableError
 from evidence_engine.nlp.intent import classify
 from evidence_engine.nlp.llm import LLMClient
+from evidence_engine.nlp.pain_claims import HEURISTIC_MODEL_VERSION
 from evidence_engine.nlp.pain_claims import extract as extract_claims
 from evidence_engine.nlp.query_expansion import effective_queries
 from evidence_engine.nlp.segment import split_sentences
@@ -339,7 +340,7 @@ class Pipeline:
         hypothesis_count = 0
         idea_count = 0
         extraction_mode = "heuristic"
-        if claims_rows and claims_rows[0].model_version != "heuristic-0.1":
+        if claims_rows and claims_rows[0].model_version != HEURISTIC_MODEL_VERSION:
             extraction_mode = "llm"
 
         def compile_one(cluster_row, member_rows, label):

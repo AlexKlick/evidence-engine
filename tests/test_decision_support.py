@@ -166,3 +166,84 @@ def test_landing_cli_emits_drafts(
         "landing-b.html",
         "landing.md",
     ]
+
+
+def _seed_contaminated_idea(session_factory, settings) -> tuple[str, str]:
+    """Seed a top idea whose hypothesis.job echoes a cited evidence snippet."""
+    from evidence_engine.store.models import EvidenceEvent, Query, SourceRun
+
+    seed(session_factory, settings, use_llm=True)
+    span = (
+        "download options chain data for any stock in csv or excel "
+        "and export instantly"
+    )
+    with session_factory() as session:
+        idea = sorted(
+            repo.ideas_for_vertical(session, VERTICAL),
+            key=lambda i: i.score_total,
+            reverse=True,
+        )[0]
+        hypothesis = repo.get_hypothesis(session, idea.hypothesis_id)
+        query = Query(text="options chain export", vertical=VERTICAL)
+        session.add(query)
+        session.flush()
+        run = SourceRun(query_id=query.id, source="searxng", status="ok")
+        session.add(run)
+        session.flush()
+        evidence = EvidenceEvent(
+            source_run_id=run.id,
+            query_id=query.id,
+            vertical=VERTICAL,
+            source="searxng",
+            url="https://competitor.example/export",
+            canonical_url="https://competitor.example/export",
+            title="Competitor options chain exporter",
+            snippet=f"{span} every trading day. Free, no sign-up.",
+            content_hash="c" * 64,
+        )
+        session.add(evidence)
+        session.flush()
+        hypothesis.evidence_for = list(hypothesis.evidence_for or []) + [evidence.id]
+        hypothesis.job = f"get chains out: {span}"  # contaminated field
+        session.commit()
+        return idea.id, evidence.id
+
+
+def test_landing_cli_fails_when_copy_redisplays_evidence(
+    fake_adapters, session_factory, settings, monkeypatch, tmp_path
+) -> None:
+    """The lane-B incident as an end-to-end gate: a hypothesis field that
+    echoes a >=7-word span of a cited evidence row must abort the export."""
+    from typer.testing import CliRunner
+
+    from evidence_engine.cli import app
+
+    idea_id, evidence_id = _seed_contaminated_idea(session_factory, settings)
+
+    monkeypatch.setenv("EE_DB_DSN", settings.db_url)
+    monkeypatch.setenv("EE_IDEAS_DIR", str(tmp_path))
+    runner = CliRunner()
+    result = runner.invoke(app, ["landing", "-i", idea_id, "--html"])
+    assert result.exit_code == 1, result.output
+    assert "error:" in result.output
+    assert evidence_id in result.output  # lineage: which evidence was echoed
+    # nothing contaminated was written
+    assert not (tmp_path / idea_id / "landing.md").exists()
+    assert not (tmp_path / idea_id / "landing-a.html").exists()
+
+
+def test_landing_cli_guard_fires_in_markdown_path_too(
+    fake_adapters, session_factory, settings, monkeypatch, tmp_path
+) -> None:
+    from typer.testing import CliRunner
+
+    from evidence_engine.cli import app
+
+    idea_id, _ = _seed_contaminated_idea(session_factory, settings)
+    monkeypatch.setenv("EE_DB_DSN", settings.db_url)
+    monkeypatch.setenv("EE_IDEAS_DIR", str(tmp_path))
+    runner = CliRunner()
+    result = runner.invoke(app, ["landing", "-i", idea_id])  # no --html
+    assert result.exit_code == 1, result.output
+    assert "error:" in result.output
+    assert not (tmp_path / idea_id / "landing.md").exists()

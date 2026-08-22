@@ -105,3 +105,49 @@ def test_top_tokens_filters_stopwords() -> None:
     tokens = top_tokens(["the best way to fix slow inference"])
     assert "slow" in tokens or "inference" in tokens
     assert "the" not in tokens
+
+
+# -- pain-claim extraction -------------------------------------------------------
+
+
+def test_heuristic_obstacle_is_compressed_not_pasted() -> None:
+    """The live incident shape: a long snippet must become a short phrase,
+    never a verbatim snippet[:200] paste."""
+    from evidence_engine.nlp.pain_claims import heuristic_claims
+
+    snippet = (
+        "Done-for-you service that handles: the recurring job — Download "
+        "options chain data for any stock in CSV or Excel. Choose columns — "
+        "price, Greeks, volume, OI — and export instantly. Free, no sign-up."
+    )
+    evidence = SimpleNamespace(
+        id="ev_paste", title="export to excel takes forever manually", snippet=snippet
+    )
+    claims = heuristic_claims([evidence])
+    assert claims, "excel/workaround language must yield a heuristic claim"
+    obstacle = claims[0]["obstacle"]
+    assert len(obstacle) <= 100
+    assert not snippet.startswith(obstacle), "obstacle must not be a raw paste"
+    assert obstacle.count("…") <= 1, "no ellipsis padding beyond a single …"
+    assert claims[0]["evidence_id"] == "ev_paste"  # lineage untouched
+
+
+def test_heuristic_title_fallback_is_capped_too() -> None:
+    from evidence_engine.nlp.pain_claims import heuristic_claims
+
+    long_title = "how do i " + "export options chains automatically " * 4 + "?"
+    evidence = SimpleNamespace(
+        id="ev_title", title=long_title, snippet="manual spreadsheet workaround"
+    )
+    claims = heuristic_claims([evidence])
+    assert claims
+    assert len(claims[0]["obstacle"]) <= 100
+
+
+def test_system_prompt_demands_paraphrase() -> None:
+    """Contract: the LLM path must forbid verbatim copying of source text."""
+    from evidence_engine.nlp.pain_claims import SYSTEM_PROMPT
+
+    lowered = SYSTEM_PROMPT.casefold()
+    assert "paraphrase" in lowered
+    assert "verbatim" in lowered

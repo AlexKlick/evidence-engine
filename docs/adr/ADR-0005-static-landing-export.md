@@ -59,3 +59,33 @@ price test, `exp_446adf139ed8`) on the workspace public hub:
 - The ADR's "no server inside the engine" stance stands: the server is a
   3-file allowlist in `scripts/`, not a serving framework — it cannot serve
   anything that is not one of the exported artifacts.
+
+## Addendum — 2026-08-22: "no raw source content" is now enforced
+
+The first live landing (options-chain price test) served a headline copied
+verbatim from a scraped competitor snippet — including the competitor's own
+"Free, no sign-up" marketing next to our $99 price. Point 3 of the decision
+("synthesized from store_derived evidence — no raw source content is
+redisplayed") was a claim, not a check. The whole chain is now fixed and
+guarded:
+
+- **Extraction bounds the lift** (`nlp/pain_claims.py`): the heuristic
+  fallback no longer pastes `snippet[:200]` into the claim obstacle; it
+  compresses to the first sentence, hard-capped at 100 characters on a word
+  boundary with at most a single `…` (question titles capped the same way).
+  The extraction SYSTEM_PROMPT now explicitly demands paraphrase and forbids
+  verbatim copying into any field (short product/incumbent names excepted).
+- **Pitch is synthesized at render time** (`experiments/landing.py`): the
+  landing never trusts `idea.pitch` — it is frozen at pipeline time and was
+  the leak carrier. `headline_a`/`pitch` are re-derived from the *current*
+  reviewed hypothesis fields via the idea's `FormSpec` template (neutral
+  job/pain line when the form is unknown), so operator review improvements
+  are reflected and stale contaminated pitches cannot resurface.
+- **Publication gate** (`experiments/redisplay_guard.py`): `ee landing`
+  renders the markdown and both HTML variants and runs
+  `assert_no_verbatim_redisplay` against every cited evidence row
+  (`hypothesis.evidence_for`) before writing anything, in both the markdown
+  and `--html` paths. A shared word n-gram of >= 7 with any evidence
+  title/snippet aborts the export with exit 1 (artifact name + evidence id +
+  matching span in the error). Shorter spans pass — 3-4-word product names
+  like "options chain data" are legitimate vocabulary, not redisplay.

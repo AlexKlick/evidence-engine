@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from evidence_engine.ideas.forms import FORMS, _outcome
+
 
 @dataclass(frozen=True)
 class LandingContent:
@@ -24,12 +26,33 @@ class LandingContent:
     body_b: str
 
 
+def synthesize_pitch(idea, hypothesis) -> str:
+    """Re-derive the pitch from CURRENT hypothesis fields + the form template.
+
+    idea.pitch is frozen at pipeline time and once carried verbatim scraped
+    text (lane B); it is never trusted for publication. Unknown forms fall
+    back to a neutral line built from job/pain.
+    """
+    form = getattr(idea, "form", None)
+    spec = next((s for s in FORMS if s.form == form), None)
+    if spec is not None:
+        incumbent = (
+            getattr(hypothesis, "current_paid_alternative", None) or "A->B"
+        )
+        return spec.pitch_template.format(
+            outcome=_outcome(hypothesis), incumbent=incumbent
+        )
+    job = getattr(hypothesis, "job", None) or "the recurring job"
+    pain = getattr(hypothesis, "pain", None) or "the manual work"
+    return f"{form or 'offer'} that handles: {job} — {pain}"
+
+
 def landing_content(idea, hypothesis, spec: dict) -> LandingContent:
     """Build the shared copy: reviewed hypothesis fields + rubric arithmetic."""
     buyer = getattr(hypothesis, "buyer", None) or "the buyer"
     job = getattr(hypothesis, "job", None) or "the recurring job"
     pain = getattr(hypothesis, "pain", None) or "the manual work"
-    pitch = getattr(idea, "pitch", "") or f"{getattr(idea, 'form', 'offer')}"
+    pitch = synthesize_pitch(idea, hypothesis)
     guardrail = spec["economics_guardrail"]
     return LandingContent(
         pitch=pitch,

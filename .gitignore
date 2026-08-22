@@ -8,10 +8,11 @@ __pycache__/
 .mypy_cache/
 
 # Local state — evidence DBs, collected data, generated outputs
-data/
-reports/
-ideas/
-gate-logs/
+# (root-anchored: an unanchored `ideas/` also swallowed src/evidence_engine/ideas/)
+/data/
+/reports/
+/ideas/
+/gate-logs/
 *.db
 *.sqlite3
 

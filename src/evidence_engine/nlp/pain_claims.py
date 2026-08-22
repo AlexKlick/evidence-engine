@@ -9,6 +9,7 @@ evidence ids are dropped.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,7 +19,33 @@ from evidence_engine.nlp.llm import LLMClient, LLMJsonError, LLMUnavailableError
 
 logger = get_logger("nlp.pain_claims")
 
-HEURISTIC_MODEL_VERSION = "heuristic-0.1"
+HEURISTIC_MODEL_VERSION = "heuristic-0.2"
+
+# Obstacles/titles lifted from evidence are COMPRESSED phrases, never pastes
+# (the publication boundary itself is the redisplay guard; this bounds how
+# much source text can flow downstream at all).
+MAX_LIFTED_CHARS = 100
+_ELLIPSIS = "…"
+_SENTENCE_SPLIT = re.compile(r"[.?!]")
+_TRAILING_NOISE = " \t,;:—-"
+
+
+def compress_source_text(text: str, limit: int = MAX_LIFTED_CHARS) -> str:
+    """First sentence of `text`, whitespace-collapsed, hard-capped at `limit`.
+
+    Truncation cuts at a word boundary and appends exactly one ellipsis
+    character — never more, never padding.
+    """
+    if not text:
+        return ""
+    first_sentence = _SENTENCE_SPLIT.split(text, 1)[0]
+    if not first_sentence.strip():
+        first_sentence = text  # leading terminator (e.g. "?free"): use the rest
+    collapsed = " ".join(first_sentence.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    cut = collapsed[: limit - len(_ELLIPSIS)].rsplit(" ", 1)[0].rstrip(_TRAILING_NOISE)
+    return cut + _ELLIPSIS
 
 SYSTEM_PROMPT = """\
 You extract structured market-research claims from search-result evidence.
@@ -40,6 +67,8 @@ Each claim object has exactly these fields:
 
 Rules:
 - Use null/empty when the text does not support a field. NEVER invent facts.
+- Paraphrase concisely in your own words. NEVER copy source text verbatim
+  into any field (short product/incumbent names are the only exception).
 - Only produce a claim when the text expresses a problem, workaround, wish,
   or switching intent. Skip pure navigation/homepage results.
 - urgency reflects lost time/money/risk language, not emotion."""
@@ -107,9 +136,15 @@ def heuristic_claims(evidences: list[Any]) -> list[dict[str, Any]]:
         labels = set(classify(text))
         if not labels & wanted:
             continue
-        obstacle = evidence.title if evidence.title.endswith(("?",)) else (
-            evidence.snippet[:200] if evidence.snippet else evidence.title
-        )
+        title = getattr(evidence, "title", "") or ""
+        snippet = getattr(evidence, "snippet", "") or ""
+        if title.endswith("?"):
+            # question titles are the obstacle, compressed like any lift
+            obstacle = compress_source_text(title)
+        elif snippet:
+            obstacle = compress_source_text(snippet)
+        else:
+            obstacle = compress_source_text(title)
         claims.append(
             {
                 "evidence_id": evidence.id,
