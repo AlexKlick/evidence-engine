@@ -41,3 +41,19 @@ any of that is earned.
 - If/when a served experiment is warranted, add a separate ADR for the
   serving posture (the workspace has a hardened public-gateway standard for
   exactly this) rather than growing this module into a server.
+
+## Addendum — 2026-08-21: exposure decided
+
+The operator approved serving the first landing experiment (options-chain
+price test, `exp_446adf139ed8`) on the workspace public hub:
+
+- `scripts/serve_landing.py` — read-only allowlist static server (exactly
+  `landing-a.html`, `landing-b.html`, `events.json` + `/healthz`; GET/HEAD
+  only; 404 for anything else including traversal) on loopback `:18087`,
+  run by the user unit `evidence-landing.service` owned by this repo.
+- Route `/apps/options-chain/` on `alexklick.ngrok.app` via the hub
+  (opencode-stack `server-surfaces.json` entry `evidence-landing`, mirroring
+  the fractal-page open-static-public allowance).
+- The ADR's "no server inside the engine" stance stands: the server is a
+  3-file allowlist in `scripts/`, not a serving framework — it cannot serve
+  anything that is not one of the exported artifacts.
