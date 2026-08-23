@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Nightly operator ritual: full pipeline over every vertical + retention purge.
 # Local-only (NO hosted CI — hard rule). Suggested crontab entry:
-#   17 3 * * * /home/alexk/documents/evidence_engine/scripts/nightly.sh
+#   17 3 * * * /path/to/evidence_engine/scripts/nightly.sh
 #
 # LLM extraction: EE_NIGHTLY_USE_LLM=1 opts into MiniMax-M3 extraction
 # (subscription — effectively unmetered, bounded only by the ~5h rolling
@@ -15,13 +15,13 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 # cron/systemd environments ship a minimal PATH; uv lives in ~/.local/bin.
-export PATH="${HOME:-/home/alexk}/.local/bin:${PATH}"
+export PATH="${HOME}/.local/bin:${PATH}"
 
 if [ "${EE_NIGHTLY_USE_LLM:-0}" = "1" ]; then
   LLM_FLAG=""
   set -a
   # shellcheck disable=SC1091
-  source "${HOME:-/home/alexk}/.claude/.env"
+  source "${HOME}/.claude/.env"
   set +a
   export EE_LLM_PROVIDER=minimax
 else

@@ -1,6 +1,6 @@
 # evidence_engine runtime configuration.
 # Endpoints mirror the workstation's canonical model lanes (MODEL_CONTRACT.json
-# in /home/alexk/documents is authoritative; `ee doctor` warns on drift).
+# in the workspace root is authoritative; `ee doctor` warns on drift).
 
 database:
   # Empty dsn -> SQLite at paths.sqlite_path. Set a Postgres DSN to use the

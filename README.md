@@ -82,16 +82,16 @@ non-zero when any vertical fails. Install once:
 
 ```bash
 crontab -e
-# 17 3 * * * /home/alexk/documents/evidence_engine/scripts/nightly.sh
+# 17 3 * * * /path/to/evidence_engine/scripts/nightly.sh
 ```
 
 A second collection day is what makes the report's velocity line compute
 (evidence-rate ratio vs the day-1 baseline). LLM extraction in the nightly is
 opt-in via `EE_NIGHTLY_USE_LLM=1` in the service/cron environment.
 
-This workstation can't write crontab (`/var/spool/cron` denied), so the
-installed mechanism is a **systemd user timer** — `evidence-engine-nightly.timer`
-at 03:17 local, `Persistent=true`:
+Where crontab is unavailable (e.g. `/var/spool/cron` denied), use a
+**systemd user timer** instead — `evidence-engine-nightly.timer` at 03:17
+local, `Persistent=true`:
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -141,6 +141,28 @@ experiments exist.
 
 - **Phase A (this scaffold)** — Google-first local pipeline + first-party outcomes.
 - **Phase B** — revenue-generating research sprints on top of the platform.
+
+## Status
+
+Research scaffold, developed in the open. It runs a real nightly loop and has
+driven live willingness-to-pay experiments, but it is not a packaged product:
+adapters beyond self-hosted SearXNG are deliberately gated off, and the
+serving/analytics layer is intentionally minimal (see ADR-0005).
+
+Two design commitments are worth knowing before you read the code:
+
+- **Prices are never invented.** Experiment economics come from parsed
+  evidence or an explicit operator override, never a default — a hardcoded
+  placeholder once set a real public price and spend cap, and the
+  `price_provenance` field plus a lifecycle gate exist to prevent that class
+  of bug.
+- **Published copy is never copied.** Landing artifacts are synthesized from
+  reviewed hypothesis fields, and a redisplay guard rejects any artifact
+  sharing a long verbatim span with cited source evidence.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 - **Phase C** — automate what the paid service repeats into SaaS modules.
 - **Phase D** — Reddit only under explicit commercial terms; YouTube only for rights-cleared uses.
 - **Phase E** — calibrated ranking trained on owned outcome data.
