@@ -6,6 +6,7 @@ Env overrides:
   EE_CONFIG_DIR          — directory holding the yaml files
   EE_DATA_DIR            — data directory (default $REPO_ROOT/data)
   EE_REPORTS_DIR         — reports directory
+  EE_GATE_LOGS_DIR       — gate-logs directory (default $REPO_ROOT/gate-logs)
 """
 
 from __future__ import annotations
@@ -64,6 +65,7 @@ class Settings:
     reports_dir: Path = REPO_ROOT / "reports"
     ideas_dir: Path = REPO_ROOT / "ideas"
     data_dir: Path = REPO_ROOT / "data"
+    gate_logs_dir: Path = REPO_ROOT / "gate-logs"
     default_sources: list[str] = field(default_factory=lambda: ["searxng"])
     default_max_results: int = 10
 
@@ -159,6 +161,9 @@ class Settings:
             use_llm_extraction=bool(pipe.get("use_llm_extraction", True)),
             reports_dir=_dir("reports_dir", REPO_ROOT / "reports", env="EE_REPORTS_DIR"),
             ideas_dir=_dir("ideas_dir", REPO_ROOT / "ideas", env="EE_IDEAS_DIR"),
+            gate_logs_dir=_dir(
+                "gate_logs_dir", REPO_ROOT / "gate-logs", env="EE_GATE_LOGS_DIR"
+            ),
             data_dir=_dir("data_dir", REPO_ROOT / "data", env="EE_DATA_DIR"),
             default_sources=list(defaults.get("sources", ["searxng"])),
             default_max_results=int(defaults.get("max_results_per_query", 10)),

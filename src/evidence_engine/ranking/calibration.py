@@ -13,7 +13,6 @@ forbids it (rights.model_training). Aggregate features are ours; raw text is not
 from __future__ import annotations
 
 from dataclasses import dataclass
-from re import compile
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,31 +21,12 @@ from evidence_engine.store.models import Experiment, Outcome, ScoreSnapshot
 
 MIN_OUTCOMES_FOR_FIT = 30
 
-# Evidence row ids are emitted as `ev_<hex>` by the seed code. Any such
-# substring inside an Outcome.value means the row leaked scraped text; refuse.
-_EVIDENCE_ID_RE = compile(r"\bev_[0-9a-f]{6,}\b")
-
 
 @dataclass
 class CalibrationDataset:
     rows: list[dict]
     outcome_count: int
     ready_to_fit: bool
-
-
-def _outcome_value_carries_text(outcome: Outcome) -> str | None:
-    """Return a snippet if the outcome's value looks like leaked source text."""
-    value = outcome.value
-    if not isinstance(value, dict):
-        return None
-    for key, raw in value.items():
-        if not isinstance(raw, str):
-            continue
-        if _EVIDENCE_ID_RE.search(raw):
-            return f"{key}={raw[:80]!r}"
-        if len(raw) >= 200:
-            return f"{key}=<len {len(raw)}>"
-    return None
 
 
 def assemble_calibration_dataset(
@@ -59,7 +39,10 @@ def assemble_calibration_dataset(
     so the live `ee calibration` read path is unchanged.
     """
     # Lazy import to keep the read path free of fit-time types.
-    from evidence_engine.ranking.fit import RankerFitLeakage
+    from evidence_engine.ranking.fit import (
+        RankerFitLeakage,
+        outcome_value_carries_text,
+    )
 
     rows: list[dict] = []
     distinct_outcomes: set[str] = set()
@@ -85,7 +68,7 @@ def assemble_calibration_dataset(
             )
             if check_no_text_leakage:
                 for outcome in found:
-                    snippet = _outcome_value_carries_text(outcome)
+                    snippet = outcome_value_carries_text(outcome)
                     if snippet is not None:
                         raise RankerFitLeakage(outcome.id, snippet)
             outcomes.extend(found)

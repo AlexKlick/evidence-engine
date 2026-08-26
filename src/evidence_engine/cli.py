@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -454,6 +455,163 @@ def outcomes_list(
             typer.echo(f"{row.id}  {row.observed_at:%Y-%m-%d %H:%M}  {row.kind:<22} {row.value}")
 
 
+@outcomes_app.command("import")
+def outcomes_import(
+    csv_path: Annotated[
+        Path,
+        typer.Option(
+            "--csv",
+            help="CSV file with header `experiment_id,kind,value`",
+        ),
+    ],
+    status: Annotated[
+        str | None,
+        typer.Option(
+            "--status",
+            help="transition the experiment to this status (draft|running|stopped)",
+        ),
+    ] = None,
+    decision: Annotated[
+        str | None,
+        typer.Option(
+            "--decision",
+            help="set experiment.decision to this string (free text)",
+        ),
+    ] = None,
+    keep_going: Annotated[
+        bool,
+        typer.Option(
+            "--keep-going",
+            help="log all refusals and continue, do not abort at first failure",
+        ),
+    ] = False,
+) -> None:
+    """Batch-import outcomes from a CSV (one outcome per row).
+
+    Validation per row, in order: column count == 3; `kind` in
+    `OUTCOME_KINDS`; `value` parses as a JSON object; the synthetic
+    Outcome passes `outcome_value_carries_text`; the experiment exists;
+    if `--status` is set the transition is legal. Atomic by default;
+    `--keep-going` collects all refusals before exiting.
+    """
+    import csv as csv_mod
+    import json
+
+    from evidence_engine.experiments.outcomes import OUTCOME_KINDS
+    from evidence_engine.ranking.fit import outcome_value_carries_text
+    from evidence_engine.store.models import Outcome
+
+    settings = Settings.load()
+    engine = make_engine(settings.db_url)
+    init_db(engine)
+    if not csv_path.is_file():
+        typer.echo(f"error: {csv_path} not found")
+        raise typer.Exit(1)
+
+    refusals: list[tuple[int, str]] = []
+    imported = 0
+
+    def _refuse(row_num: int, message: str) -> None:
+        refusals.append((row_num, message))
+        typer.echo(f"refuse row {row_num}: {message}", err=True)
+
+    with make_session_factory(engine)() as session, csv_path.open(
+        "r", encoding="utf-8"
+    ) as handle:
+        reader = csv_mod.reader(handle)
+        rows = list(reader)
+
+    if not rows:
+        typer.echo("error: CSV is empty")
+        raise typer.Exit(1)
+
+    header, *data_rows = rows
+    expected = ["experiment_id", "kind", "value"]
+    if [c.strip() for c in header] != expected:
+        typer.echo(
+            f"error: header must be {expected}, got {[c.strip() for c in header]}"
+        )
+        raise typer.Exit(1)
+
+    total = len(data_rows)
+    for index, row in enumerate(data_rows, start=1):
+        if len(row) != 3:
+            _refuse(index, f"expected 3 columns, got {len(row)}")
+            if not keep_going:
+                break
+            continue
+        experiment_id, kind, value_text = (cell.strip() for cell in row)
+        if kind not in OUTCOME_KINDS:
+            _refuse(index, f"unknown kind {kind!r}")
+            if not keep_going:
+                break
+            continue
+        if value_text == "":
+            payload: dict = {}
+        else:
+            try:
+                parsed = json.loads(value_text)
+            except json.JSONDecodeError as exc:
+                _refuse(index, f"malformed JSON: {exc.msg}")
+                if not keep_going:
+                    break
+                continue
+            if not isinstance(parsed, dict):
+                _refuse(index, "value must be a JSON object")
+                if not keep_going:
+                    break
+                continue
+            payload = parsed
+
+        synthetic = Outcome(
+            id=f"__csv_check_{index:04d}",
+            experiment_id=experiment_id,
+            kind=kind,
+            value=payload,
+        )
+        snippet = outcome_value_carries_text(synthetic)
+        if snippet is not None:
+            _refuse(index, f"text leakage: {snippet}")
+            if not keep_going:
+                break
+            continue
+
+        experiment = session.get(repo.Experiment, experiment_id)
+        if experiment is None:
+            _refuse(index, f"experiment {experiment_id!r} not found")
+            if not keep_going:
+                break
+            continue
+
+        if status is not None:
+            from evidence_engine.experiments.lifecycle import validate_transition
+
+            try:
+                validate_transition(experiment.status, status)
+            except ValueError as exc:
+                _refuse(index, exc.args[0])
+                if not keep_going:
+                    break
+                continue
+            experiment.status = status
+
+        if decision is not None:
+            experiment.decision = decision
+
+        outcome = repo.record_outcome(session, experiment, kind, payload)
+        typer.echo(
+            f"[{index}/{total}] outcome {outcome.id} kind={kind} on {experiment_id}"
+        )
+        imported += 1
+
+    session.commit()
+
+    typer.echo(f"imported {imported} · skipped {len(refusals)}")
+    if refusals:
+        raise typer.Exit(1)
+
+
+
 @experiments_app.command("list")
 def experiments_list(
     vertical: Annotated[str | None, typer.Option("--vertical", "-y")] = None,
@@ -492,8 +650,6 @@ def experiments_start(
     ] = None,
 ) -> None:
     """draft -> running; surfaces the predeclared economics before you spend."""
-    from datetime import UTC, datetime
-
     from evidence_engine.experiments.experiment import cac_ceiling
     from evidence_engine.experiments.lifecycle import start_experiment
 
@@ -666,6 +822,20 @@ def calibration(
             help="Delete data/ranker_weights.json (audit copies in reports/ are kept).",
         ),
     ] = False,
+    sprint_log: Annotated[
+        bool,
+        typer.Option(
+            "--sprint-log",
+            help="Append a timestamped snapshot to gate-logs/sprint.md.",
+        ),
+    ] = False,
+    idea: Annotated[
+        str | None,
+        typer.Option(
+            "--idea",
+            help="(with --show-weights) print score diff vs YAML for one idea_id.",
+        ),
+    ] = None,
 ) -> None:
     """Show the closed-loop dataset: feature snapshots joined with outcomes.
 
@@ -674,20 +844,33 @@ def calibration(
                      data/ranker_weights.json + reports/ranker-weights-<stamp>.json.
       --show-weights Pretty-print the active artifact, or fall back message.
       --clear        Delete the primary artifact (audit copies stay).
+      --sprint-log   Append a timestamped markdown block to gate-logs/sprint.md.
+      --idea ID      With --show-weights: filter + score diff vs YAML for one idea.
     """
     settings = Settings.load()
 
-    if fit and (show_weights or clear):
-        typer.echo("warning: --fit takes precedence over --show-weights and --clear")
+    if idea and not show_weights:
+        typer.echo(
+            "usage: --idea requires --show-weights (it's a read-only filter on the weights table)"
+        )
+        raise typer.Exit(1)
+
+    if sprint_log and (fit or show_weights or clear):
+        typer.echo(
+            "warning: --sprint-log takes precedence over --fit, --show-weights, --clear"
+        )
 
     if fit:
         _calibration_fit(settings)
         return
     if show_weights:
-        _calibration_show_weights(settings)
+        _calibration_show_weights(settings, idea=idea)
         return
     if clear:
         _calibration_clear(settings)
+        return
+    if sprint_log:
+        _calibration_sprint_log(settings)
         return
 
     # Default: print the joined dataset (unchanged from prior behavior).
@@ -775,7 +958,7 @@ def _calibration_fit(settings: Settings) -> None:
     typer.echo(f"  audit:    {audit_path}")
 
 
-def _calibration_show_weights(settings: Settings) -> None:
+def _calibration_show_weights(settings: Settings, idea: str | None = None) -> None:
     payload = load_learned_weights(settings)
     if payload is None:
         typer.echo(
@@ -783,6 +966,11 @@ def _calibration_show_weights(settings: Settings) -> None:
             "score falls back to YAML rubric"
         )
         return
+
+    if idea is not None:
+        typer.echo(
+            f"filter: idea_id={idea} · weights from {settings.data_dir / 'ranker_weights.json'}"
+        )
 
     typer.echo(
         f"fitted_at {payload.get('fitted_at', '?')} · "
@@ -815,6 +1003,57 @@ def _calibration_show_weights(settings: Settings) -> None:
     if dropped:
         typer.echo(f"dropped (constant columns): {', '.join(dropped)}")
 
+    if idea is not None:
+        _show_weights_idea_diff(settings, idea, weights)
+
+
+def _show_weights_idea_diff(
+    settings: Settings, idea: str, weights: dict
+) -> None:
+    """Print YAML-baseline vs post-fit `score_idea` totals + delta."""
+    from sqlalchemy import select
+
+    from evidence_engine.config import load_rubric
+    from evidence_engine.ideas.scoring import score_idea
+    from evidence_engine.store.models import ProductIdea, ScoreSnapshot
+
+    engine = make_engine(settings.db_url)
+    init_db(engine)
+    with make_session_factory(engine)() as session:
+        idea_row = session.get(ProductIdea, idea)
+        if idea_row is None:
+            typer.echo(f"(idea {idea!r} not in store; skipping score diff)")
+            return
+        snapshot = (
+            session.execute(
+                select(ScoreSnapshot).where(ScoreSnapshot.idea_id == idea)
+            )
+            .scalars()
+            .first()
+        )
+        if snapshot is None or not snapshot.features:
+            typer.echo(f"(idea {idea} has no score snapshot; skipping score diff)")
+            return
+        hypothesis = repo.get_hypothesis(session, idea_row.hypothesis_id)
+        if hypothesis is None:
+            typer.echo(
+                f"(idea's hypothesis not in store; skipping score diff)"
+            )
+            return
+
+    rubric = load_rubric(settings)
+    features = dict(snapshot.features or {})
+    baseline = score_idea(features, hypothesis, idea_row.form, rubric)
+    override = {
+        name: float(w) for name, w in weights.items() if isinstance(w, (int, float))
+    }
+    learned = score_idea(
+        features, hypothesis, idea_row.form, rubric, weights_override=override
+    )
+    typer.echo(f"score_idea(pre-fit, yaml): {baseline.total}")
+    typer.echo(f"score_idea(post-fit, learned): {learned.total}")
+    typer.echo(f"delta: {learned.total - baseline.total:+.4f}")
+
 
 def _calibration_clear(settings: Settings) -> None:
     primary = settings.data_dir / "ranker_weights.json"
@@ -823,6 +1062,102 @@ def _calibration_clear(settings: Settings) -> None:
         return
     primary.unlink()
     typer.echo(f"removed {primary} (audit copy in reports/ kept)")
+
+
+def _calibration_sprint_log(settings: Settings) -> None:
+    """Append a timestamped markdown block to gate-logs/sprint.md.
+
+    Provenance rule: every line names its source. Reuses
+    `assemble_calibration_dataset` for snapshot/outcome counts, the
+    ranker artifact for fit metadata, and a single Outcome scan for
+    the decision distribution + per-vertical running counts.
+    """
+    import io as _io
+    from collections import Counter
+
+    from sqlalchemy import select
+
+    from evidence_engine.experiments.outcomes import OUTCOME_KINDS as _OK
+    from evidence_engine.ranking.calibration import assemble_calibration_dataset
+    from evidence_engine.store.models import Experiment, Outcome, ProductIdea
+
+    stamp = datetime.now(UTC).isoformat()
+
+    try:
+        engine = make_engine(settings.db_url)
+        init_db(engine)
+        with make_session_factory(engine)() as session:
+            dataset = assemble_calibration_dataset(session)
+        with make_session_factory(engine)() as session:
+            decision_kinds = (
+                "advance",
+                "kill",
+                "iterate",
+            )
+            outcome_rows = list(
+                session.execute(
+                    select(Outcome).where(Outcome.kind.in_(decision_kinds))
+                ).scalars()
+            )
+            decision_counts = Counter(r.kind for r in outcome_rows)
+
+            running_per_vertical: dict[str, int] = {}
+            for experiment in session.execute(
+                select(Experiment).where(Experiment.status == "running")
+            ).scalars():
+                idea = session.get(ProductIdea, experiment.idea_id)
+                if idea is None:
+                    continue
+                running_per_vertical[idea.vertical] = (
+                    running_per_vertical.get(idea.vertical, 0) + 1
+                )
+    except Exception as exc:  # noqa: BLE001 — surface as a loud sprint-log fail
+        typer.echo(f"error: sprint-log read failed: {exc}")
+        raise typer.Exit(1) from exc
+
+    payload = load_learned_weights(settings)
+    if payload is not None:
+        fit_meta = (
+            f"fitted_at={payload.get('fitted_at', '?')} · "
+            f"loss={payload.get('loss', '?')}"
+        )
+    else:
+        fit_meta = "(no weights fit yet)"
+
+    lines = _io.StringIO()
+    lines.write(f"## Sprint snapshot — {stamp}\n")
+    lines.write(
+        f"- source: `ee calibration` snapshot — "
+        f"snapshots={len(dataset.rows)} · "
+        f"outcomes={dataset.outcome_count} · "
+        f"ready_to_fit={dataset.ready_to_fit}\n"
+    )
+    lines.write(f"- source: `data/ranker_weights.json` — {fit_meta}\n")
+    if running_per_vertical:
+        lines.write("- source: `ee calibration` per-vertical running counts:\n")
+        for vertical, count in sorted(running_per_vertical.items()):
+            lines.write(f"      - {vertical}: {count}\n")
+    else:
+        lines.write("- source: `ee calibration` per-vertical running counts: (none running)\n")
+    lines.write(
+        "- source: `ee calibration` decision distribution: "
+        f"advance={decision_counts.get('advance', 0)} · "
+        f"kill={decision_counts.get('kill', 0)} · "
+        f"iterate={decision_counts.get('iterate', 0)}\n"
+    )
+    lines.write(
+        f"- data_dir: {settings.data_dir} · "
+        f"reports_dir: {settings.reports_dir} · "
+        f"gate_logs: {settings.gate_logs_dir}\n"
+    )
+
+    target = settings.gate_logs_dir / "sprint.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not target.is_file():
+        target.write_text("# Sprint log\n\n", encoding="utf-8")
+    with target.open("a", encoding="utf-8") as handle:
+        handle.write(lines.getvalue())
+    typer.echo(f"appended → {target}")
 
 
 @app.command(name="ideas")

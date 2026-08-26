@@ -19,6 +19,32 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from re import compile
+
+from evidence_engine.store.models import Outcome
+
+# Evidence row ids are emitted as `ev_<hex>` by the seed code. Any such
+# substring inside an Outcome.value means the row leaked scraped text; refuse.
+_EVIDENCE_ID_RE = compile(r"\bev_[0-9a-f]{6,}\b")
+
+
+def outcome_value_carries_text(outcome: Outcome) -> str | None:
+    """Return a snippet if the outcome's value looks like leaked source text.
+
+    Returns None when safe. Public helper so `ee outcomes import --csv`
+    can apply the same gate the fit does, without flushing a row first.
+    """
+    value = outcome.value
+    if not isinstance(value, dict):
+        return None
+    for key, raw in value.items():
+        if not isinstance(raw, str):
+            continue
+        if _EVIDENCE_ID_RE.search(raw):
+            return f"{key}={raw[:80]!r}"
+        if len(raw) >= 200:
+            return f"{key}=<len {len(raw)}>"
+    return None
 
 FEATURE_NAMES: list[str] = [
     "unique_evidence_count",
@@ -268,5 +294,6 @@ __all__ = [
     "RankerFitRefused",
     "WeightsFit",
     "fit_logistic",
+    "outcome_value_carries_text",
     "write_weights_artifact",
 ]
