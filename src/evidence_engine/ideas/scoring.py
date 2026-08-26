@@ -78,6 +78,7 @@ def score_idea(
     form: str,
     rubric: dict,
     reviewed: bool = False,
+    weights_override: dict | None = None,
 ) -> ScoreResult:
     """0-10 per dimension, weighted to 100; gates cap the band.
 
@@ -125,10 +126,19 @@ def score_idea(
         "unit_economics": _clamp(5 + (2 if price_signals else 0)),
     }
 
-    weights = {
-        name: float(body.get("weight", 0))
-        for name, body in (rubric.get("dimensions") or {}).items()
-    }
+    if weights_override:
+        # v4: learned weights from data/ranker_weights.json (loaded once at
+        # boot). Same 10-dim scoring surface; missing keys default to 0.0
+        # so an artifact with a sparse feature set never crashes the score.
+        weights = {
+            name: float(weights_override.get(name, 0.0))
+            for name in (rubric.get("dimensions") or {}).keys()
+        }
+    else:
+        weights = {
+            name: float(body.get("weight", 0))
+            for name, body in (rubric.get("dimensions") or {}).items()
+        }
     total = sum(dimensions.get(name, 0.0) * weight for name, weight in weights.items()) / 10.0
 
     gates = {

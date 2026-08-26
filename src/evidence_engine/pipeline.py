@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from evidence_engine.config import Settings, load_rubric, load_verticals
+from evidence_engine.config import Settings, load_learned_weights, load_rubric, load_verticals
 from evidence_engine.deletion.service import purge_expired
 from evidence_engine.experiments.experiment import draft_experiment_spec
 from evidence_engine.ideas.forms import generate_forms
@@ -83,6 +83,9 @@ class Pipeline:
         self.settings = settings or Settings.load()
         self.policy = policy or PolicyRegistry.load(self.settings.policies_path)
         self.rubric = load_rubric(self.settings)
+        # v4: silently None when no ranker_weights.json is on disk — falls
+        # back to the YAML rubric (existing behavior).
+        self.learned_weights = load_learned_weights(self.settings)
         if session_factory is None:
             engine = make_engine(self.settings.db_url)
             init_db(engine)
@@ -391,7 +394,13 @@ class Pipeline:
             price_band = band_from_claims(member_claims)
             candidates = []
             for form in generate_forms(draft):
-                result = score_idea(features, draft, form["form"], self.rubric)
+                result = score_idea(
+                    features,
+                    draft,
+                    form["form"],
+                    self.rubric,
+                    weights_override=self.learned_weights,
+                )
                 candidates.append((result, form))
             candidates.sort(key=lambda pair: pair[0].total, reverse=True)
             for result, form in candidates[:3]:

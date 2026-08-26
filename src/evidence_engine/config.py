@@ -4,10 +4,13 @@ Env overrides:
   EVIDENCE_ENGINE_CONFIG — path to a main config yaml
   EE_DB_DSN              — force a database DSN (wins over yaml)
   EE_CONFIG_DIR          — directory holding the yaml files
+  EE_DATA_DIR            — data directory (default $REPO_ROOT/data)
+  EE_REPORTS_DIR         — reports directory
 """
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,6 +63,7 @@ class Settings:
     use_llm_extraction: bool = True
     reports_dir: Path = REPO_ROOT / "reports"
     ideas_dir: Path = REPO_ROOT / "ideas"
+    data_dir: Path = REPO_ROOT / "data"
     default_sources: list[str] = field(default_factory=lambda: ["searxng"])
     default_max_results: int = 10
 
@@ -155,6 +159,7 @@ class Settings:
             use_llm_extraction=bool(pipe.get("use_llm_extraction", True)),
             reports_dir=_dir("reports_dir", REPO_ROOT / "reports", env="EE_REPORTS_DIR"),
             ideas_dir=_dir("ideas_dir", REPO_ROOT / "ideas", env="EE_IDEAS_DIR"),
+            data_dir=_dir("data_dir", REPO_ROOT / "data", env="EE_DATA_DIR"),
             default_sources=list(defaults.get("sources", ["searxng"])),
             default_max_results=int(defaults.get("max_results_per_query", 10)),
         )
@@ -169,3 +174,29 @@ def load_verticals(settings: Settings) -> dict[str, dict[str, Any]]:
 def load_rubric(settings: Settings) -> dict[str, Any]:
     """Return the parsed scoring rubric."""
     return _load_yaml(settings.rubric_path)
+
+
+RANKER_WEIGHTS_FILENAME = "ranker_weights.json"
+
+
+def load_learned_weights(settings: Settings) -> dict[str, Any] | None:
+    """Return the persisted fit artifact, or None if missing/invalid.
+
+    The artifact is operator-local (`data/` is gitignored). Returns None
+    on any read or parse failure so callers can fall back to the YAML
+    rubric silently.
+    """
+    path = settings.data_dir / RANKER_WEIGHTS_FILENAME
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if not isinstance(payload.get("weights"), dict):
+        return None
+    if not isinstance(payload.get("features"), list):
+        return None
+    return payload

@@ -285,9 +285,19 @@ def render_evidence_pack(pack: dict) -> list[str]:
 
 
 def apply_review(
-    session: Session, hypothesis_id: str, rubric: dict, updates: dict
+    session: Session,
+    hypothesis_id: str,
+    rubric: dict,
+    updates: dict,
+    weights_override: dict | None = None,
 ) -> ReviewOutcome:
-    """Apply operator updates to a hypothesis and rescore its ideas."""
+    """Apply operator updates to a hypothesis and rescore its ideas.
+
+    `weights_override` (v4): when present, `score_idea` uses the learned
+    ranker coefficients from `data/ranker_weights.json` instead of the
+    YAML rubric. The CLI's `ee review` passes `load_learned_weights(settings)`
+    at boot; tests pass `None` to keep the YAML baseline.
+    """
     hypothesis = repo.get_hypothesis(session, hypothesis_id)
     if hypothesis is None:
         raise KeyError(f"hypothesis {hypothesis_id!r} not found")
@@ -318,7 +328,14 @@ def apply_review(
             logger.warning(
                 "idea %s has no feature snapshot; scoring against empty features", idea.id
             )
-        result = score_idea(features, hypothesis, idea.form, rubric, reviewed=True)
+        result = score_idea(
+            features,
+            hypothesis,
+            idea.form,
+            rubric,
+            reviewed=True,
+            weights_override=weights_override,
+        )
         idea.score_total = result.total
         idea.score_dimensions = result.dimensions
         idea.gates = result.gates

@@ -9,7 +9,7 @@ from typing import Annotated
 import typer
 
 from evidence_engine import __version__
-from evidence_engine.config import Settings, load_rubric, load_verticals
+from evidence_engine.config import Settings, load_learned_weights, load_rubric, load_verticals
 from evidence_engine.deletion.service import purge_expired
 from evidence_engine.experiments.experiment import draft_experiment_spec
 from evidence_engine.experiments.outcomes import OUTCOME_KINDS
@@ -355,7 +355,13 @@ def review(
     }
     with make_session_factory(engine)() as session:
         try:
-            outcome = apply_review(session, hypothesis, rubric, updates)
+            outcome = apply_review(
+                session,
+                hypothesis,
+                rubric,
+                updates,
+                weights_override=load_learned_weights(settings),
+            )
             session.commit()
         except (KeyError, ValueError) as exc:
             typer.echo(f"error: {exc}")
@@ -638,9 +644,53 @@ def experiments_decide(
 
 
 @app.command()
-def calibration() -> None:
-    """Show the closed-loop dataset: feature snapshots joined with outcomes."""
+def calibration(
+    fit: Annotated[
+        bool,
+        typer.Option(
+            "--fit",
+            help="Fit logistic on snapshots → outcomes; write data/ranker_weights.json + audit copy.",
+        ),
+    ] = False,
+    show_weights: Annotated[
+        bool,
+        typer.Option(
+            "--show-weights",
+            help="Print data/ranker_weights.json as a table.",
+        ),
+    ] = False,
+    clear: Annotated[
+        bool,
+        typer.Option(
+            "--clear",
+            help="Delete data/ranker_weights.json (audit copies in reports/ are kept).",
+        ),
+    ] = False,
+) -> None:
+    """Show the closed-loop dataset: feature snapshots joined with outcomes.
+
+    Flags (mutually exclusive in spirit; --fit wins if multiple are passed):
+      --fit          Fit logistic regression on the joined dataset and write
+                     data/ranker_weights.json + reports/ranker-weights-<stamp>.json.
+      --show-weights Pretty-print the active artifact, or fall back message.
+      --clear        Delete the primary artifact (audit copies stay).
+    """
     settings = Settings.load()
+
+    if fit and (show_weights or clear):
+        typer.echo("warning: --fit takes precedence over --show-weights and --clear")
+
+    if fit:
+        _calibration_fit(settings)
+        return
+    if show_weights:
+        _calibration_show_weights(settings)
+        return
+    if clear:
+        _calibration_clear(settings)
+        return
+
+    # Default: print the joined dataset (unchanged from prior behavior).
     engine = make_engine(settings.db_url)
     init_db(engine)
     with make_session_factory(engine)() as session:
@@ -659,6 +709,120 @@ def calibration() -> None:
                 f"decision={row.get('decision') or '—'} "
                 f"outcomes={[o['kind'] for o in row['outcomes']]}"
             )
+
+
+def _calibration_fit(settings: Settings) -> None:
+    from evidence_engine.ranking.fit import (
+        InsufficientLabelDiversity,
+        RankerFitLeakage,
+        RankerFitRefused,
+        fit_logistic,
+        write_weights_artifact,
+    )
+
+    engine = make_engine(settings.db_url)
+    init_db(engine)
+    with make_session_factory(engine)() as session:
+        try:
+            dataset = assemble_calibration_dataset(
+                session, check_no_text_leakage=True
+            )
+        except RankerFitLeakage as exc:
+            typer.echo(f"error: {exc.args[0]}")
+            raise typer.Exit(1) from exc
+
+    if not dataset.ready_to_fit:
+        typer.echo(
+            f"error: not ready_to_fit (outcome_count={dataset.outcome_count} < "
+            f"MIN_OUTCOMES_FOR_FIT=30) — run more decisions first"
+        )
+        raise typer.Exit(1)
+
+    rows: list[dict] = []
+    for row in dataset.rows:
+        decision = row.get("decision")
+        if decision is None:
+            continue
+        rows.append(
+            {
+                "features": row["features"] or {},
+                "label": 1 if decision == "advance" else 0,
+                "decision": decision,
+            }
+        )
+
+    try:
+        fit_result = fit_logistic(rows)
+    except InsufficientLabelDiversity as exc:
+        typer.echo(f"error: {exc.args[0]} — fit refused")
+        raise typer.Exit(1) from exc
+    except RankerFitRefused as exc:
+        typer.echo(f"error: {exc.args[0]}")
+        raise typer.Exit(1) from exc
+
+    primary = settings.data_dir / "ranker_weights.json"
+    audit_path = write_weights_artifact(fit_result, primary, settings.reports_dir)
+
+    counts = fit_result.decision_counts
+    advance = counts.get("advance", 0)
+    collapse = sum(v for k, v in counts.items() if k != "advance")
+    typer.echo(
+        f"fitted_at {fit_result.row_count} rows · "
+        f"advance {advance} / kill-or-iterate {collapse} · "
+        f"loss {fit_result.loss:.4f}"
+    )
+    typer.echo(f"  primary:  {primary}")
+    typer.echo(f"  audit:    {audit_path}")
+
+
+def _calibration_show_weights(settings: Settings) -> None:
+    payload = load_learned_weights(settings)
+    if payload is None:
+        typer.echo(
+            f"no ranker_weights.json at {settings.data_dir / 'ranker_weights.json'} — "
+            "score falls back to YAML rubric"
+        )
+        return
+
+    typer.echo(
+        f"fitted_at {payload.get('fitted_at', '?')} · "
+        f"row_count {payload.get('row_count', '?')} · "
+        f"loss {payload.get('loss', '?')}"
+    )
+    typer.echo(
+        f"intercept  {payload.get('intercept', 0.0):+.4f}"
+    )
+
+    weights = payload.get("weights", {})
+    means = payload.get("means", [])
+    stds = payload.get("stds", [])
+    name_to_index = {name: i for i, name in enumerate(payload.get("features", []))}
+    rows = []
+    for name, weight in weights.items():
+        index = name_to_index.get(name, -1)
+        if 0 <= index < len(means):
+            mean = means[index]
+            std = stds[index] if index < len(stds) else 0.0
+        else:
+            mean = 0.0
+            std = 0.0
+        rows.append((name, weight, mean, std))
+    rows.sort(key=lambda r: abs(r[1]), reverse=True)
+    for name, weight, mean, std in rows:
+        typer.echo(f"  {name:<30}  {weight:+.4f}    z={mean:+.3f}±{std:.3f}")
+
+    dropped = payload.get("dropped_constant_features", [])
+    if dropped:
+        typer.echo(f"dropped (constant columns): {', '.join(dropped)}")
+
+
+def _calibration_clear(settings: Settings) -> None:
+    primary = settings.data_dir / "ranker_weights.json"
+    if not primary.is_file():
+        typer.echo("already clear")
+        return
+    primary.unlink()
+    typer.echo(f"removed {primary} (audit copy in reports/ kept)")
 
 
 @app.command(name="ideas")
