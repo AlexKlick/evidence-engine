@@ -567,6 +567,76 @@ def experiments_stop(
         typer.echo(f"stopped {row.id} (decision: {row.decision or '—'})")
 
 
+@experiments_app.command("decide")
+def experiments_decide(
+    experiment: Annotated[str, typer.Option("--experiment", "-e", help="exp_... id")],
+    decision: Annotated[
+        str,
+        typer.Option(
+            "--decision",
+            "-d",
+            help="advance|kill|iterate (typed via experiments/decisions.py)",
+        ),
+    ],
+    reason: Annotated[
+        str | None,
+        typer.Option("--reason", "-r", help="free-text reason; capped at 500 chars"),
+    ] = None,
+    decider: Annotated[
+        str,
+        typer.Option(
+            "--decider",
+            help="who decided (default: operator). Recorded on the Outcome.value.",
+        ),
+    ] = "operator",
+    override: Annotated[
+        bool,
+        typer.Option(
+            "--override",
+            help="suppress 'advance without prior paid outcome' warning",
+        ),
+    ] = False,
+) -> None:
+    """Apply a typed decision to a running experiment, synthesize an Outcome.
+
+    Routes through validate_transition (lifecycle.py:30). The decision is
+    written to experiment.decision (typed) AND a row of matching kind
+    ('advance'|'kill'|'iterate') is appended to outcome, so calibration
+    (ranking/calibration.py:33) finally has something decision-aware to
+    join on.
+    """
+    from evidence_engine.experiments.decisions import DECISIONS, apply_decision
+
+    settings = Settings.load()
+    engine = make_engine(settings.db_url)
+    init_db(engine)
+    if decision not in DECISIONS:
+        typer.echo(
+            f"error: --decision must be one of {', '.join(DECISIONS)} "
+            f"(got {decision!r})"
+        )
+        raise typer.Exit(1)
+    with make_session_factory(engine)() as session:
+        try:
+            row, outcome, warnings = apply_decision(
+                session,
+                experiment,
+                decision,  # type: ignore[arg-type]
+                reason=reason,
+                decider=decider,
+                override=override,
+            )
+            session.commit()
+        except (KeyError, ValueError) as exc:
+            typer.echo(f"error: {exc.args[0]}")
+            raise typer.Exit(1) from exc
+    typer.echo(f"{decision} {row.id}: status={row.status}")
+    if outcome is not None:
+        typer.echo(f"  synthesized outcome {outcome.id} (kind={outcome.kind})")
+    for warning in warnings:
+        typer.echo(f"  warning: {warning}")
+
+
 @app.command()
 def calibration() -> None:
     """Show the closed-loop dataset: feature snapshots joined with outcomes."""
@@ -586,6 +656,7 @@ def calibration() -> None:
         if row["outcomes"]:
             typer.echo(
                 f"  {row['idea_id']}: total={row['total']} "
+                f"decision={row.get('decision') or '—'} "
                 f"outcomes={[o['kind'] for o in row['outcomes']]}"
             )
 

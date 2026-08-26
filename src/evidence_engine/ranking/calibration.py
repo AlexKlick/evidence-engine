@@ -42,6 +42,12 @@ def assemble_calibration_dataset(session: Session) -> CalibrationDataset:
             ).scalars()
         )
         outcomes = []
+        # v2: any of this idea's experiments carrying a typed decision labels
+        # the row. First non-null wins; experiments are an unbounded small
+        # set per idea, so we don't need to sort by created_at here.
+        latest_decision: str | None = next(
+            (e.decision for e in experiments if e.decision), None
+        )
         for experiment in experiments:
             found = list(
                 session.execute(
@@ -56,6 +62,7 @@ def assemble_calibration_dataset(session: Session) -> CalibrationDataset:
                 "idea_id": snapshot.idea_id,
                 "features": snapshot.features,
                 "total": snapshot.total,
+                "decision": latest_decision,
                 "outcomes": [
                     {"kind": outcome.kind, "value": outcome.value} for outcome in outcomes
                 ],

@@ -3,10 +3,11 @@
 
 Serves EXACTLY the A/B landing pages, the events contract, and /healthz —
 nothing else exists to traverse, list, or write. GET/HEAD only (405
-otherwise). Binds loopback only; the public hub (alex_public profile)
-proxies it under /apps/options-chain/ with strip_prefix, mirroring the
-fractal-page open-static-public pattern. No secrets, no writes, no
-capability of any kind beyond serving three static files.
+otherwise). Binds loopback only; the public hub proxies it under a
+configured route (the concrete profile name lives in the operator's hub
+route source, not this repo), mirroring the fractal-page open-static-public
+pattern. No secrets, no writes, no capability of any kind beyond serving
+three static files.
 """
 
 from __future__ import annotations
@@ -46,7 +47,7 @@ class LandingHandler(BaseHTTPRequestHandler):
             )
             body = (
                 "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-                "<title>Options-chain CSV export — landing experiment</title></head>"
+                "<title>Landing experiment</title></head>"
                 "<body><h1>Landing experiment</h1>"
                 "<p>Price-test variants (visible price before the CTA):</p>"
                 f"<ul>{variants}</ul></body></html>"

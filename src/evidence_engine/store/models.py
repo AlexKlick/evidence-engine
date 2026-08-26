@@ -233,6 +233,7 @@ class Experiment(Base):
     status: Mapped[str] = mapped_column(String(24), default="draft")
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     decision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

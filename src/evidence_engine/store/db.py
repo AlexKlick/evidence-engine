@@ -55,3 +55,18 @@ def init_db(engine: Engine) -> None:
                 text("INSERT INTO schema_version (version, applied_at) VALUES (:v, :ts)"),
                 {"v": SCHEMA_VERSION, "ts": _utcnow_iso()},
             )
+        # v2 (2026-08-26): decision_reason lands on existing DBs. SQLite's
+        # ADD COLUMN does not support IF NOT EXISTS on the bundled version
+        # shipped with some Python builds, so we guard against the duplicate
+        # column error instead. PRAGMA table_info is portable across
+        # SQLite and Postgres. No Alembic yet.
+        existing_cols = {
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(experiment)"))
+        }
+        if "decision_reason" not in existing_cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE experiment ADD COLUMN decision_reason VARCHAR(500)"
+                )
+            )

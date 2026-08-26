@@ -73,6 +73,8 @@ workstation `MODEL_CONTRACT.json`; while GPU 0 is unavailable, set
 `~/.claude/.env`) to extract via hosted MiniMax-M3 — authorized for derived
 searxng data under policy v2's `external_inference_authorization`.
 
+**Repository history note.** A small number of early commits referenced operator-specific URLs (a personal SearXNG origin, an ngrok tunnel, and routing profile names) that are no longer present in `HEAD`. They were removed from source as the public posture hardened, but the commits remain in the git log for forensic continuity. Force-pushing the history would break clones and forks and is not warranted; reviewers can ignore those URLs in `git log -p` outputs.
+
 ## Nightly operator loop
 
 `scripts/nightly.sh` runs `ee pipeline --all --no-llm` (deterministic — no

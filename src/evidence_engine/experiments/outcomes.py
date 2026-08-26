@@ -16,6 +16,10 @@ OUTCOME_KINDS = [
     "activation",
     "retention_60d",
     "cac_observed",
+    # -- v2: synthesized by ee experiments decide (experiments/decisions.py) --
+    "advance",
+    "kill",
+    "iterate",
 ]
 
 

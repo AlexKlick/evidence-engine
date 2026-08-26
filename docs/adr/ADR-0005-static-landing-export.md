@@ -45,25 +45,29 @@ any of that is earned.
 ## Addendum — 2026-08-21: exposure decided
 
 The operator approved serving the first landing experiment (options-chain
-price test, `exp_446adf139ed8`) on the workspace public hub:
+price test, `<live-experiment-id>` — the actual ID is redacted from this
+ADR; the live experiment table is the source of truth) on the workspace
+public hub:
 
 - `scripts/serve_landing.py` — read-only allowlist static server (exactly
   `landing-a.html`, `landing-b.html`, `events.json` + `/healthz`; GET/HEAD
   only; 404 for anything else including traversal) on loopback `:18087`,
   run by the user unit `evidence-landing.service` owned by this repo.
-- Route `/apps/options-chain/` on the workspace public hub, originally an
-  ngrok origin and — since the 2026-08-22 funnel migration retired it — a
-  Tailscale Funnel origin (`https://<public-hub-origin>`). The hub's route
-  source carries an `evidence-landing` entry under an open-static-public
-  allowance with a tailscale-funnel `public_scope`. Host origins are
-  deployment-specific and deliberately not recorded here.
+- Route `/apps/<route-slug>/` on the workspace public hub (the concrete
+  slug is owned by the operator's hub route source, not this repo),
+  originally an ngrok origin and — since the 2026-08-22 funnel migration
+  retired it — a Tailscale Funnel origin (`https://<public-hub-origin>`).
+  The hub's route source carries an `evidence-landing` entry under an
+  open-static-public allowance with a tailscale-funnel `public_scope`.
+  Host origins are deployment-specific and deliberately not recorded
+  here.
 - The ADR's "no server inside the engine" stance stands: the server is a
   3-file allowlist in `scripts/`, not a serving framework — it cannot serve
   anything that is not one of the exported artifacts.
 
 ## Addendum — 2026-08-22: "no raw source content" is now enforced
 
-The first live landing (options-chain price test) served a headline copied
+The first live landing (a price-test variant) served a headline copied
 verbatim from a scraped competitor snippet — including the competitor's own
 "Free, no sign-up" marketing next to our $99 price. Point 3 of the decision
 ("synthesized from store_derived evidence — no raw source content is
