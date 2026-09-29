@@ -22,6 +22,22 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_DIR = REPO_ROOT / "config"
 
+# Hosted MiniMax default since 2026-09-28 (owner: every M3 pick moves to M3.1).
+# It always thinks: a thinking-disable or effort "none" is an HTTP 400, so a
+# request names one of MINIMAX_EFFORTS. MiniMax answers an unknown id with 200
+# from M3, so the client checks the response's `model` field.
+MINIMAX_DEFAULT_MODEL = "MiniMax-M3.1-Flash-Preview"
+MINIMAX_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+
+def _minimax_effort(value: object) -> str:
+    effort = str(value).strip().lower()
+    if effort not in MINIMAX_EFFORTS:
+        raise ValueError(
+            f"MiniMax effort {value!r} is not one of {', '.join(MINIMAX_EFFORTS)}"
+        )
+    return effort
+
 
 def _load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -51,7 +67,12 @@ class Settings:
     # MiniMax Coding Plan covers the Anthropic-compatible endpoint; the
     # OpenAI-style /v1/chat/completions path is pay-as-you-go (1008 balance).
     minimax_base_url: str = "https://api.minimax.io/anthropic/v1"
-    minimax_model: str = "MiniMax-M3"
+    minimax_model: str = MINIMAX_DEFAULT_MODEL
+    # M3.1 always thinks: every request names its effort (default "high":
+    # claim extraction is a judgement call) and gets reasoning headroom on top
+    # of the answer's max_tokens, because thinking spends output tokens.
+    minimax_effort: str = "high"
+    minimax_reasoning_headroom: int = 4096
     llm_timeout: float = 240.0
     llm_max_batch: int = 6
     llm_max_evidences: int = 24
@@ -124,7 +145,7 @@ class Settings:
         provider = (os.environ.get("EE_LLM_PROVIDER") or llm.get("provider") or "local").lower()
         if provider == "minimax":
             base_default = minimax.get("base_url", "https://api.minimax.io/v1")
-            model_default = minimax.get("model", "MiniMax-M3")
+            model_default = minimax.get("model", MINIMAX_DEFAULT_MODEL)
         else:
             provider = "local"
             base_default = llm.get("base_url", "http://127.0.0.1:18000/v1")
@@ -148,7 +169,13 @@ class Settings:
             minimax_base_url=minimax.get(
                 "base_url", "https://api.minimax.io/anthropic/v1"
             ),
-            minimax_model=minimax.get("model", "MiniMax-M3"),
+            minimax_model=minimax.get("model", MINIMAX_DEFAULT_MODEL),
+            minimax_effort=_minimax_effort(
+                os.environ.get("EE_LLM_EFFORT") or minimax.get("effort", "high")
+            ),
+            minimax_reasoning_headroom=int(
+                minimax.get("reasoning_headroom_tokens", 4096)
+            ),
             llm_timeout=float(llm.get("timeout_seconds", 240.0)),
             llm_max_batch=int(llm.get("max_batch_evidences", 6)),
             llm_max_evidences=int(llm.get("max_evidences_per_run", 24)),
