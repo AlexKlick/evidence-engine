@@ -1,4 +1,4 @@
-"""LLM client: loopback text-main lane (:18000) or hosted MiniMax (M3).
+"""LLM client: loopback text-main lane (:18000) or hosted MiniMax (M3.1).
 
 Provider is config/env selected (`llm.provider` / EE_LLM_PROVIDER). Which
 rights purpose applies follows the provider:
@@ -37,6 +37,11 @@ class LLMJsonError(RuntimeError):
 
 def _strip_fences(text: str) -> str:
     return _FENCE.sub("", (text or "").strip())
+
+
+def _thinks_always(model: str) -> bool:
+    """M3.1 reasons on every request and takes its effort in `output_config`."""
+    return model.startswith("MiniMax-M3.1")
 
 
 class LLMClient:
@@ -106,22 +111,37 @@ class LLMClient:
         base = self._settings.llm_base_url.rstrip("/")
         try:
             if self.is_external:
-                # Anthropic Messages shape. MiniMax may emit thinking blocks
-                # (M2 always, M3 sometimes) — only text blocks carry the answer.
+                # Anthropic Messages shape. MiniMax emits thinking blocks
+                # (M3.1 always) — only text blocks carry the answer.
+                model = self._settings.llm_model
+                body: dict[str, Any] = {
+                    "model": model,
+                    "system": system,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "messages": [{"role": "user", "content": user}],
+                }
+                if _thinks_always(model):
+                    # never a thinking-disable (HTTP 400); reasoning shares
+                    # max_tokens with the answer, so it gets headroom on top
+                    body["output_config"] = {"effort": self._settings.minimax_effort}
+                    body["max_tokens"] = (
+                        max_tokens + self._settings.minimax_reasoning_headroom
+                    )
                 response = httpx.post(
                     f"{base}/messages",
                     headers=self._headers(),
-                    json={
-                        "model": self._settings.llm_model,
-                        "system": system,
-                        "max_tokens": max_tokens,
-                        "temperature": temperature,
-                        "messages": [{"role": "user", "content": user}],
-                    },
+                    json=body,
                     timeout=self._settings.llm_timeout,
                 )
                 response.raise_for_status()
                 payload = response.json()
+                reported = payload.get("model")
+                if reported and reported != model:
+                    # MiniMax answers an unknown id with 200 from another model
+                    raise LLMUnavailableError(
+                        f"requested {model}, response named {reported}"
+                    )
                 blocks = payload.get("content") or []
                 return "".join(
                     block.get("text", "")

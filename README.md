@@ -70,8 +70,12 @@ uv run ee bootstrap --idea <idea-id> --out ideas/          # scaffold a project 
 to the loopback lanes (`:18000` text-main, `:6900` embeddings) per the
 workstation `MODEL_CONTRACT.json`; while GPU 0 is unavailable, set
 `EE_LLM_PROVIDER=minimax` (with `ANTHROPIC_AUTH_TOKEN_MINIMAX2` sourced from
-`~/.claude/.env`) to extract via hosted MiniMax-M3 — authorized for derived
-searxng data under policy v2's `external_inference_authorization`.
+`~/.claude/.env`) to extract via hosted `MiniMax-M3.1-Flash-Preview` (the
+default since 2026-09-28; it named `MiniMax-M3` before) — authorized for derived
+searxng data under policy v2's `external_inference_authorization`. M3.1 always
+thinks: requests carry `output_config.effort` (`llm.minimax.effort`, default
+`high`; `EE_LLM_EFFORT` overrides) plus reasoning headroom on `max_tokens`, and
+a response naming a different model is refused.
 
 **Repository history note.** A small number of early commits referenced operator-specific URLs (a personal SearXNG origin, an ngrok tunnel, and routing profile names) that are no longer present in `HEAD`. They were removed from source as the public posture hardened, but the commits remain in the git log for forensic continuity. Force-pushing the history would break clones and forks and is not warranted; reviewers can ignore those URLs in `git log -p` outputs.
 

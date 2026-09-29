@@ -16,11 +16,11 @@ searxng:
   language: "en"
 
 llm:
-  # Provider: "local" (loopback text-main) or "minimax" (hosted MiniMax M3).
+  # Provider: "local" (loopback text-main) or "minimax" (hosted MiniMax M3.1).
   # Hosted inference over collected evidence requires the EXTERNAL_INFERENCE
   # right on every involved source — policy v2 authorizes it for searxng
   # derived data (see config/source_policies.yaml).
-  # Env overrides: EE_LLM_PROVIDER, EE_LLM_BASE_URL, EE_LLM_MODEL.
+  # Env overrides: EE_LLM_PROVIDER, EE_LLM_BASE_URL, EE_LLM_MODEL, EE_LLM_EFFORT.
   provider: "local"
   base_url: "http://127.0.0.1:18000/v1"
   model: "Qwen/Qwen3.8-27B"
@@ -31,7 +31,13 @@ llm:
     # Coding-Plan-covered path is the Anthropic-compatible endpoint; the
     # OpenAI-style /v1/chat/completions returns 1008 insufficient balance.
     base_url: "https://api.minimax.io/anthropic/v1"
-    model: "MiniMax-M3"
+    # M3.1 since 2026-09-28 (owner: everything M3 -> M3.1). It always thinks:
+    # effort is low|medium|high|xhigh|max (never "none"), sent as
+    # output_config.effort; reasoning spends output tokens, so each request
+    # gets reasoning_headroom_tokens on top of the answer's max_tokens.
+    model: "MiniMax-M3.1-Flash-Preview"
+    effort: "high"
+    reasoning_headroom_tokens: 4096
     api_key_env: "ANTHROPIC_AUTH_TOKEN_MINIMAX2"
 
 embeddings:
